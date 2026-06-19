@@ -8,6 +8,7 @@ import BoardPanel from './components/BoardPanel'
 import Archive from './components/Archive'
 import MemoPanel, { MemoRow } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
+import KnowledgePanel from './components/KnowledgePanel'
 
 // ログインユーザーごとの localStorage キャッシュキー（未ログイン/無効時は共通キー）。
 const localKey = (user) =>
@@ -23,16 +24,17 @@ const nowISO = () => new Date().toISOString()
 function loadLocal(key) {
   try {
     const raw = localStorage.getItem(key)
-    if (!raw) return { tasks: [], memos: [], templates: [] }
+    if (!raw) return { tasks: [], memos: [], templates: [], knowledge: [] }
     const data = JSON.parse(raw)
-    if (Array.isArray(data)) return { tasks: data, memos: [], templates: [] }
+    if (Array.isArray(data)) return { tasks: data, memos: [], templates: [], knowledge: [] }
     return {
       tasks: data.tasks ?? [],
       memos: data.memos ?? [],
       templates: data.templates ?? [],
+      knowledge: data.knowledge ?? [],
     }
   } catch {
-    return { tasks: [], memos: [], templates: [] }
+    return { tasks: [], memos: [], templates: [], knowledge: [] }
   }
 }
 
@@ -51,7 +53,11 @@ export default function App() {
   const [templates, setTemplates] = useState(() =>
     localOnly ? loadLocal(STORAGE_KEY).templates : [],
   )
-  const [view, setView] = useState('board') // 'board' | 'archive'
+  const [knowledge, setKnowledge] = useState(() =>
+    localOnly ? loadLocal(STORAGE_KEY).knowledge : [],
+  )
+  const [view, setView] = useState('board') // 'board' | 'organize' | 'archive'
+  const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
   const [query, setQuery] = useState('') // 検索キーワード
   const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo', id}
   const [sortKey, setSortKey] = useState(
@@ -80,7 +86,7 @@ export default function App() {
   const fileInputRef = useRef(null)
   // クラウドと最後に同期した内容（送受信のループ防止用）。
   const lastSyncRef = useRef(
-    JSON.stringify({ tasks: [], memos: [], templates: [] }),
+    JSON.stringify({ tasks: [], memos: [], templates: [], knowledge: [] }),
   )
 
   const changeMemoSize = (s) => setMemoSize(s === 'full' ? 'm' : s)
@@ -128,15 +134,18 @@ export default function App() {
           tasks: s.tasks,
           memos: s.memos,
           templates: s.templates,
+          knowledge: s.knowledge,
         })
         setTasks(s.tasks)
         setMemos(s.memos)
         setTemplates(s.templates)
+        setKnowledge(s.knowledge)
         setCloudStatus('connecting')
       } else {
         setTasks([])
         setMemos([])
         setTemplates([])
+        setKnowledge([])
         setCloudStatus('off')
       }
     })
@@ -146,17 +155,17 @@ export default function App() {
 
   // 変更のたびにブラウザへ自動保存（アカウント別）＋クラウドへ反映。
   useEffect(() => {
-    const json = JSON.stringify({ tasks, memos, templates })
+    const json = JSON.stringify({ tasks, memos, templates, knowledge })
     localStorage.setItem(localKey(user), json)
     if (firebaseEnabled && db && user && json !== lastSyncRef.current) {
       lastSyncRef.current = json
       setDoc(
         doc(db, USERS, user.uid),
-        { tasks, memos, templates, updatedAt: serverTimestamp() },
+        { tasks, memos, templates, knowledge, updatedAt: serverTimestamp() },
         { merge: true },
       ).catch((e) => console.error('クラウド保存に失敗:', e))
     }
-  }, [tasks, memos, templates, user])
+  }, [tasks, memos, templates, knowledge, user])
 
   // クラウド（Firestore）とのリアルタイム同期（ログインユーザーごと）。
   useEffect(() => {
@@ -170,7 +179,7 @@ export default function App() {
         if (!snap.exists()) {
           setDoc(
             ref,
-            { tasks, memos, templates, updatedAt: serverTimestamp() },
+            { tasks, memos, templates, knowledge, updatedAt: serverTimestamp() },
             { merge: true },
           ).catch(() => {})
           return
@@ -180,11 +189,13 @@ export default function App() {
           tasks: data.tasks ?? [],
           memos: data.memos ?? [],
           templates: data.templates ?? [],
+          knowledge: data.knowledge ?? [],
         }
         lastSyncRef.current = JSON.stringify(incoming)
         setTasks(incoming.tasks)
         setMemos(incoming.memos)
         setTemplates(incoming.templates)
+        setKnowledge(incoming.knowledge)
       },
       (err) => {
         setCloudStatus('error')
@@ -527,9 +538,49 @@ export default function App() {
     setMemos((prev) => prev.filter((m) => m.id !== id))
   }
 
+  // --- Freespace（ナレッジカード）---------------------------------------
+  const addKnowledge = ({ title, body, category, tags, color }) => {
+    if (!title && !body && !category && (!tags || tags.length === 0)) return
+    setKnowledge((prev) => [
+      {
+        id: newId(),
+        title,
+        body,
+        category,
+        tags,
+        color,
+        pinned: false,
+        createdAt: nowISO(),
+        updatedAt: nowISO(),
+      },
+      ...prev,
+    ])
+  }
+
+  const updateKnowledge = (id, patch) =>
+    setKnowledge((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, ...patch, updatedAt: nowISO() } : item,
+      ),
+    )
+
+  const toggleKnowledgePin = (id) =>
+    setKnowledge((prev) =>
+      prev.map((item) =>
+        item.id === id
+          ? { ...item, pinned: !item.pinned, updatedAt: nowISO() }
+          : item,
+      ),
+    )
+
+  const deleteKnowledge = (id) => {
+    if (!confirm('このナレッジを削除しますか？')) return
+    setKnowledge((prev) => prev.filter((item) => item.id !== id))
+  }
+
   // --- ファイル書き出し / 読み込み ---------------------------------------
   const exportFile = () => {
-    const blob = new Blob([JSON.stringify({ tasks, memos }, null, 2)], {
+    const blob = new Blob([JSON.stringify({ tasks, memos, templates, knowledge }, null, 2)], {
       type: 'application/json',
     })
     const url = URL.createObjectURL(blob)
@@ -551,15 +602,25 @@ export default function App() {
         // 旧形式（配列）と新形式（{tasks, memos}）の両方に対応。
         const nextTasks = Array.isArray(data) ? data : data.tasks
         const nextMemos = Array.isArray(data) ? [] : data.memos ?? []
+        const nextTemplates = Array.isArray(data) ? [] : data.templates ?? []
+        const nextKnowledge = Array.isArray(data) ? [] : data.knowledge ?? []
         if (!Array.isArray(nextTasks)) throw new Error('形式が違います')
+        if (!Array.isArray(nextMemos)) throw new Error('形式が違います')
+        if (!Array.isArray(nextTemplates)) throw new Error('形式が違います')
+        if (!Array.isArray(nextKnowledge)) throw new Error('形式が違います')
         if (
-          (tasks.length > 0 || memos.length > 0) &&
-          !confirm('現在のタスク・メモを読み込んだ内容で置き換えます。よろしいですか？')
+          (tasks.length > 0 ||
+            memos.length > 0 ||
+            templates.length > 0 ||
+            knowledge.length > 0) &&
+          !confirm('現在のタスク・メモ・ナレッジを読み込んだ内容で置き換えます。よろしいですか？')
         ) {
           return
         }
         setTasks(nextTasks)
         setMemos(nextMemos)
+        setTemplates(nextTemplates)
+        setKnowledge(nextKnowledge)
       } catch {
         alert('読み込みに失敗しました。正しいJSONファイルを選んでください。')
       }
@@ -626,6 +687,13 @@ export default function App() {
     onArchive: archiveMemo,
     onDelete: deleteMemo,
   }
+  const knowledgeProps = {
+    items: knowledge,
+    onAdd: addKnowledge,
+    onUpdate: updateKnowledge,
+    onDelete: deleteKnowledge,
+    onTogglePin: toggleKnowledgePin,
+  }
   const openDetail = (type, id) => setDetail({ type, id })
   const closeDetail = () => setDetail(null)
   const openTermFromMemo = (key) => {
@@ -639,6 +707,12 @@ export default function App() {
     detail?.type === 'task' ? tasks.find((t) => t.id === detail.id) : null
   const detailMemo =
     detail?.type === 'memo' ? memos.find((m) => m.id === detail.id) : null
+  const sidePaneWidth = {
+    s: '380px',
+    m: '480px',
+    l: '620px',
+    xl: '50vw',
+  }[memoSize] || '480px'
 
   // --- 認証ゲート（Firebase 有効時のみ）---------------------------------
   if (firebaseEnabled && !authReady) {
@@ -680,14 +754,46 @@ export default function App() {
 
         <nav className="view-switch">
           <button
-            className={view === 'board' ? 'active' : ''}
-            onClick={() => setView('board')}
+            className={view === 'board' && sidePane === 'memo' ? 'active' : ''}
+            onClick={() => {
+              setView('board')
+              setSidePane('memo')
+              setBoardFull(false)
+              setMemoOnly(false)
+            }}
           >
-            ボード
+            MEMO
+          </button>
+          <button
+            className={view === 'board' && sidePane === 'free' ? 'active' : ''}
+            onClick={() => {
+              setView('board')
+              setSidePane('free')
+              setBoardFull(false)
+              setMemoOnly(false)
+              setMobilePane('memo')
+            }}
+          >
+            Freespace
+          </button>
+          <button
+            className={view === 'organize' ? 'active' : ''}
+            onClick={() => {
+              setView('organize')
+              setSidePane('memo')
+              setBoardFull(false)
+              setMemoOnly(false)
+            }}
+          >
+            ナレッジ整理
           </button>
           <button
             className={view === 'archive' ? 'active' : ''}
-            onClick={() => setView('archive')}
+            onClick={() => {
+              setView('archive')
+              setBoardFull(false)
+              setMemoOnly(false)
+            }}
           >
             完了フォルダ
             {archivedCount > 0 && (
@@ -756,9 +862,17 @@ export default function App() {
               <button
                 className={`ghost desktop-view-toggle ${memoOnly ? 'on' : ''}`}
                 onClick={toggleMemoOnly}
-                title="MEMO だけを大きく表示（短期/中期/長期を隠す）"
+                title={
+                  sidePane === 'free'
+                    ? 'Freespace だけを大きく表示（短期/中期/長期を隠す）'
+                    : 'MEMO だけを大きく表示（短期/中期/長期を隠す）'
+                }
               >
-                {memoOnly ? '🗂 ボード表示' : '📝 メモのみ'}
+                {memoOnly
+                  ? '🗂 ボード表示'
+                  : sidePane === 'free'
+                    ? 'Freespaceのみ'
+                    : '📝 メモのみ'}
               </button>
               <button
                 className={`ghost desktop-view-toggle ${boardFull ? 'on' : ''}`}
@@ -817,20 +931,33 @@ export default function App() {
       </header>
 
       <div
-        className={`layout ${view === 'board' ? `mobile-${mobilePane}` : 'mobile-board'} ${
+        className={`layout ${
+          view === 'board'
+            ? `mobile-${mobilePane}`
+            : view === 'organize'
+              ? 'mobile-organize'
+              : 'mobile-board'
+        } ${
+          view === 'organize' ? 'is-knowledge-organize' : ''
+        } ${
           boardFull ? 'is-board-full' : ''
         } ${
           memoOnly ? 'is-memo-only' : ''
         }`}
       >
-        <MemoPanel
-          memos={activeMemos}
-          size={memoSize}
-          onSizeChange={changeMemoSize}
-          onAdd={addMemo}
-          onOpenDetail={(id) => openDetail('memo', id)}
-          {...memoProps}
-        />
+        {view !== 'archive' &&
+          (view === 'board' && sidePane === 'free' ? (
+            <KnowledgePanel style={{ '--memo-w': sidePaneWidth }} {...knowledgeProps} />
+          ) : (
+            <MemoPanel
+              memos={activeMemos}
+              size={memoSize}
+              onSizeChange={changeMemoSize}
+              onAdd={addMemo}
+              onOpenDetail={(id) => openDetail('memo', id)}
+              {...memoProps}
+            />
+          ))}
 
         {view === 'board' && (
           <div className="memo-term-summary" aria-label="board task counts">
@@ -874,6 +1001,8 @@ export default function App() {
               onOpenDetail={(id) => openDetail('task', id)}
               {...taskProps}
             />
+          ) : view === 'organize' ? (
+            <KnowledgePanel {...knowledgeProps} />
           ) : (
             <Archive
               tasks={archivedTasks}
