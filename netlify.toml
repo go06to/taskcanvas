@@ -1,0 +1,5 @@
+# Netlify でこのフォルダ（Git連携）をデプロイする際の設定。
+# ※ Netlify Drop（dist フォルダをドラッグ）で公開する場合は、このファイルは無くても動きます。
+[build]
+  command = "npm run build"
+  publish = "dist"
