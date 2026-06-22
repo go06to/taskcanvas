@@ -2,18 +2,25 @@
 // label はネオン調のかっこいい呼び名、hint に日本語の意味（期間）を残す。
 // color is the main accent; soft is the low-contrast tint used on light panels.
 export const TERMS = [
-  { key: 'short', label: 'SPRINT', hint: '短期 ・ 今すぐ〜数日', color: '#c9346c', soft: 'rgba(201,52,108,0.12)' },
-  { key: 'mid', label: 'FOCUS', hint: '中期 ・ 数週間〜1ヶ月', color: '#166fbd', soft: 'rgba(22,111,189,0.12)' },
-  { key: 'long', label: 'VISION', hint: '長期 ・ 数ヶ月以上', color: '#2f8f68', soft: 'rgba(47,143,104,0.12)' },
+  { key: 'short', label: 'SPRINT', hint: '短期 ・ 今すぐ〜数日', color: '#c9346c', soft: '#fbeaf1' },
+  { key: 'mid', label: 'FOCUS', hint: '中期 ・ 数週間〜1ヶ月', color: '#166fbd', soft: '#eaf4fd' },
+  { key: 'long', label: 'VISION', hint: '長期 ・ 数ヶ月以上', color: '#2f8f68', soft: '#eaf7f2' },
 ]
+
+// MEMO 内で使う登録先。分類しない情報も「MEMO」として明示的に選べる。
+export const MEMO_TERMS = [
+  { key: 'memo', label: 'MEMO', hint: '分類せずメモとして保管', color: '#9a6b28', soft: '#fff8e8' },
+  ...TERMS,
+]
+export const MEMO_TERM_MAP = Object.fromEntries(MEMO_TERMS.map((t) => [t.key, t]))
 
 export const TERM_MAP = Object.fromEntries(TERMS.map((t) => [t.key, t]))
 
 // 優先度（0=なし）。
 export const PRIORITIES = [
-  { v: 3, label: '高', color: '#c24155' },
-  { v: 2, label: '中', color: '#b7791f' },
-  { v: 1, label: '低', color: '#3478c4' },
+  { v: 3, label: '高', color: '#dc2626' },
+  { v: 2, label: '中', color: '#3f3f46' },
+  { v: 1, label: '低', color: '#71717a' },
 ]
 export const PRIORITY_MAP = Object.fromEntries(PRIORITIES.map((p) => [p.v, p]))
 

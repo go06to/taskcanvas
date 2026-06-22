@@ -1,4 +1,4 @@
-import { TERM_MAP } from '../constants'
+import { MEMO_TERM_MAP, TERM_MAP } from '../constants'
 
 const fmtDate = (iso) => {
   if (!iso) return ''
@@ -55,7 +55,7 @@ export default function Archive({
                       ボードへ戻す
                     </button>
                     <button className="mini danger" onClick={() => onDelete(task.id)}>
-                      🗑
+                      ×
                     </button>
                   </div>
                 </li>
@@ -69,29 +69,37 @@ export default function Archive({
         <>
           <h3 className="archive-group">メモ</h3>
           <ul className="archive-list">
-            {memos.map((memo) => (
-              <li key={memo.id} className="archive-item">
-                <span className="tag tag-memo">📝 メモ</span>
-                <span
-                  className="archive-title"
-                  dangerouslySetInnerHTML={{ __html: memo.text }}
-                />
-                <span className="archive-date">
-                  作成 {fmtDate(memo.createdAt)} ／ 完了 {fmtDate(memo.archivedAt)}
-                </span>
-                <div className="archive-actions">
-                  <button className="mini" onClick={() => onRestoreMemo(memo.id)}>
-                    メモへ戻す
-                  </button>
-                  <button
-                    className="mini danger"
-                    onClick={() => onDeleteMemo(memo.id)}
+            {memos.map((memo) => {
+              const term = MEMO_TERM_MAP[memo.term] || MEMO_TERM_MAP.memo
+              return (
+                <li key={memo.id} className="archive-item">
+                  <span
+                    className="tag tag-memo"
+                    style={{ background: term.soft, color: term.color }}
                   >
-                    🗑
-                  </button>
-                </div>
-              </li>
-            ))}
+                    {term.label}
+                  </span>
+                  <span
+                    className="archive-title"
+                    dangerouslySetInnerHTML={{ __html: memo.text }}
+                  />
+                  <span className="archive-date">
+                    作成 {fmtDate(memo.createdAt)} ／ 完了 {fmtDate(memo.archivedAt)}
+                  </span>
+                  <div className="archive-actions">
+                    <button className="mini" onClick={() => onRestoreMemo(memo.id)}>
+                      メモへ戻す
+                    </button>
+                    <button
+                      className="mini danger"
+                      onClick={() => onDeleteMemo(memo.id)}
+                    >
+                      ×
+                    </button>
+                  </div>
+                </li>
+              )
+            })}
           </ul>
         </>
       )}

@@ -2,14 +2,25 @@ import { useEffect, useMemo, useState } from 'react'
 
 const COLORS = [
   { key: 'white', label: '白', value: '#ffffff' },
-  { key: 'lemon', label: '黄', value: '#fff4bf' },
-  { key: 'mint', label: '緑', value: '#dff6ea' },
-  { key: 'sky', label: '青', value: '#dfeeff' },
-  { key: 'rose', label: '桃', value: '#f8e1ec' },
-  { key: 'violet', label: '紫', value: '#eee7ff' },
+  { key: 'gray', label: '薄いグレー', value: '#f4f4f5' },
+  { key: 'slate', label: 'グレー', value: '#e9eaec' },
+  { key: 'blue', label: '薄い青', value: '#eaf2ff' },
 ]
 
 const defaultColor = COLORS[0].value
+
+const LEGACY_COLORS = {
+  '#fff4bf': '#f4f4f5',
+  '#dff6ea': '#e9eaec',
+  '#dfeeff': '#eaf2ff',
+  '#f8e1ec': '#f4f4f5',
+  '#eee7ff': '#e9eaec',
+}
+
+const noteColor = (color) =>
+  COLORS.some((option) => option.value === color)
+    ? color
+    : LEGACY_COLORS[color] || defaultColor
 
 const fmtDate = (iso) => {
   if (!iso) return ''
@@ -72,7 +83,7 @@ export function KnowledgeCard({
   return (
     <article
       className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${large ? 'large' : ''}`}
-      style={{ '--note': item.color || defaultColor }}
+      style={{ '--note': noteColor(item.color) }}
     >
       <div className="knowledge-card-top">
         <input
@@ -99,7 +110,7 @@ export function KnowledgeCard({
           onClick={() => onTogglePin(item.id)}
           title={item.pinned ? 'ピン留めを解除' : 'ピン留め'}
         >
-          📌
+          PIN
         </button>
       </div>
 
@@ -136,7 +147,7 @@ export function KnowledgeCard({
               key={c.key}
               type="button"
               className={`knowledge-swatch ${
-                (item.color || defaultColor) === c.value ? 'active' : ''
+                noteColor(item.color) === c.value ? 'active' : ''
               }`}
               style={{ '--swatch': c.value }}
               onClick={() => onUpdate(item.id, { color: c.value })}
@@ -224,7 +235,7 @@ export default function KnowledgePanel({
 
       <div className="knowledge-tools">
         <div className="knowledge-search">
-          <span>🔍</span>
+          <span>⌕</span>
           <input
             value={query}
             placeholder="ナレッジ検索"

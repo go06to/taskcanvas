@@ -4,7 +4,6 @@ import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import { TERMS, STORAGE_KEY } from './constants'
 import { isDue } from './dateUtils'
 import { db, auth, firebaseEnabled, googleProvider, USERS } from './firebase'
-import BoardPanel from './components/BoardPanel'
 import Archive from './components/Archive'
 import MemoPanel, { MemoRow } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
@@ -21,18 +20,68 @@ const newId = () =>
 // 今日の日付を ISO 文字列で返す。
 const nowISO = () => new Date().toISOString()
 
+const escapeHtml = (value = '') =>
+  String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;')
+
+// 旧ボードの未アーカイブタスクを、新しい分類付きMEMOへ一度だけ移行する。
+// 旧タスク固有の項目もオブジェクト内に残し、情報自体は失わない。
+function migrateActiveTasksToMemos(data) {
+  const tasks = Array.isArray(data.tasks) ? data.tasks : []
+  const memos = Array.isArray(data.memos) ? data.memos : []
+  const activeTasks = tasks.filter((task) => !task.archived)
+  if (activeTasks.length === 0) return { data: { ...data, tasks, memos }, migrated: false }
+
+  const convertedTaskIds = new Set(
+    memos.map((memo) => memo.sourceTaskId).filter(Boolean),
+  )
+  const convertedMemos = activeTasks
+    .filter((task) => !convertedTaskIds.has(task.id))
+    .map((task) => ({
+      ...task,
+      id: `memo-from-task-${task.id}`,
+      sourceTaskId: task.id,
+      text: escapeHtml(task.title || ''),
+      term: ['short', 'mid', 'long'].includes(task.term) ? task.term : 'memo',
+      status: 'action',
+      comment: task.comment || '',
+      miniTasks: (Array.isArray(task.subtasks) ? task.subtasks : []).map((subtask) => ({
+        ...subtask,
+        createdAt: subtask.createdAt || task.createdAt || nowISO(),
+      })),
+      createdAt: task.createdAt || nowISO(),
+      archived: false,
+      archivedAt: null,
+    }))
+
+  return {
+    data: {
+      ...data,
+      tasks: tasks.filter((task) => task.archived),
+      memos: [...memos, ...convertedMemos],
+    },
+    migrated: true,
+  }
+}
+
 function loadLocal(key) {
   try {
     const raw = localStorage.getItem(key)
     if (!raw) return { tasks: [], memos: [], templates: [], knowledge: [] }
     const data = JSON.parse(raw)
-    if (Array.isArray(data)) return { tasks: data, memos: [], templates: [], knowledge: [] }
-    return {
+    const normalized = Array.isArray(data)
+      ? { tasks: data, memos: [], templates: [], knowledge: [] }
+      : {
       tasks: data.tasks ?? [],
       memos: data.memos ?? [],
       templates: data.templates ?? [],
       knowledge: data.knowledge ?? [],
-    }
+      }
+    return migrateActiveTasksToMemos(normalized).data
   } catch {
     return { tasks: [], memos: [], templates: [], knowledge: [] }
   }
@@ -56,7 +105,7 @@ export default function App() {
   const [knowledge, setKnowledge] = useState(() =>
     localOnly ? loadLocal(STORAGE_KEY).knowledge : [],
   )
-  const [view, setView] = useState('board') // 'board' | 'organize' | 'archive'
+  const [view, setView] = useState('board') // 'board' | 'archive'
   const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
   const [query, setQuery] = useState('') // 検索キーワード
   const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge', id}
@@ -68,18 +117,6 @@ export default function App() {
   const [activeTerm, setActiveTerm] = useState(
     () => localStorage.getItem('tb-active-term') || 'short',
   )
-  // メモ欄の幅（レイアウト設定）。's' | 'm' | 'l' | 'xl'
-  const [memoSize, setMemoSize] = useState(() => {
-    const saved = localStorage.getItem('tb-memo-size') || 'm'
-    return saved === 'full' ? 'm' : saved
-  })
-  // メモを隠してボードを全体表示するか。
-  const [boardFull, setBoardFull] = useState(false)
-  // 逆に、ボードを隠して MEMO だけを大きく表示するか（スマホ向け）。
-  const [memoOnly, setMemoOnly] = useState(false)
-  const [mobilePane, setMobilePane] = useState(
-    () => localStorage.getItem('tb-mobile-pane') || 'memo',
-  )
   // クラウド同期の状態表示。
   const [cloudStatus, setCloudStatus] = useState(localOnly ? 'off' : 'connecting')
   const [authError, setAuthError] = useState('')
@@ -88,27 +125,17 @@ export default function App() {
     JSON.stringify({ tasks: [], memos: [], templates: [], knowledge: [] }),
   )
 
-  const changeMemoSize = (s) => setMemoSize(s === 'full' ? 'm' : s)
+  // 開いたままの画面や旧キャッシュにも移行を適用する。
+  useEffect(() => {
+    const { data, migrated } = migrateActiveTasksToMemos({ tasks, memos })
+    if (!migrated) return
+    setTasks(data.tasks)
+    setMemos(data.memos)
+  }, [tasks, memos])
 
   const changeActiveTerm = (key) => {
     setActiveTerm(key)
     localStorage.setItem('tb-active-term', key)
-  }
-
-  // 「ボード全体」と「メモのみ」は排他。
-  const toggleBoardFull = () => {
-    setBoardFull((v) => {
-      const nv = !v
-      if (nv) setMemoOnly(false)
-      return nv
-    })
-  }
-  const toggleMemoOnly = () => {
-    setMemoOnly((v) => {
-      const nv = !v
-      if (nv) setBoardFull(false)
-      return nv
-    })
   }
 
   // --- 認証（Google ログイン）-------------------------------------------
@@ -184,13 +211,15 @@ export default function App() {
           return
         }
         const data = snap.data()
-        const incoming = {
+        const rawIncoming = {
           tasks: data.tasks ?? [],
           memos: data.memos ?? [],
           templates: data.templates ?? [],
           knowledge: data.knowledge ?? [],
         }
-        lastSyncRef.current = JSON.stringify(incoming)
+        const { data: incoming, migrated } = migrateActiveTasksToMemos(rawIncoming)
+        // 移行があった場合は旧データを比較元にし、変換後データをクラウドへ書き戻す。
+        lastSyncRef.current = JSON.stringify(migrated ? rawIncoming : incoming)
         setTasks(incoming.tasks)
         setMemos(incoming.memos)
         setTemplates(incoming.templates)
@@ -204,14 +233,6 @@ export default function App() {
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user])
-
-  useEffect(() => {
-    localStorage.setItem('tb-memo-size', memoSize)
-  }, [memoSize])
-
-  useEffect(() => {
-    localStorage.setItem('tb-mobile-pane', mobilePane)
-  }, [mobilePane])
 
   useEffect(() => {
     localStorage.setItem('tb-sort', sortKey)
@@ -422,17 +443,17 @@ export default function App() {
     )
   }
 
-  // --- メモ（フリー入力 → ワンクリックでタスク化）------------------------
-  const addMemo = (text, status = 'note') => {
+  // --- メモ（登録時に MEMO / SPRINT / FOCUS / VISION を選択）-------------
+  const addMemo = (text, status = 'note', term) => {
     const t = text.trim()
-    if (!t) return
-    // ボードに書いた順で上から下へ並ぶよう末尾に追加。
+    if (!t || !term) return
+    // 新しく作成したMEMOを一覧の先頭へ追加。
     setMemos((prev) => [
-      ...prev,
       {
         id: newId(),
         text: t,
         status,
+        term,
         comment: '',
         miniTasks: [],
         createdAt: nowISO(),
@@ -440,6 +461,7 @@ export default function App() {
         archived: false,
         archivedAt: null,
       },
+      ...prev,
     ])
   }
 
@@ -463,6 +485,11 @@ export default function App() {
   const setMemoStatus = (id, status) =>
     setMemos((prev) =>
       prev.map((memo) => (memo.id === id ? { ...memo, status } : memo)),
+    )
+
+  const setMemoTerm = (id, term) =>
+    setMemos((prev) =>
+      prev.map((memo) => (memo.id === id ? { ...memo, term } : memo)),
     )
 
   const addMemoMiniTask = (memoId, title) =>
@@ -521,41 +548,6 @@ export default function App() {
           : memo,
       ),
     )
-
-  // メモをボードのタスクへ移動（既定は SPRINT=short）。装飾は除去して本文を採用。
-  const promoteMemo = (memoId, term = 'short') => {
-    const m = memos.find((x) => x.id === memoId)
-    if (!m) return
-    const title = (m.text || '')
-      .replace(/<[^>]*>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-    if (!title) return
-    setTasks((prev) => [
-      {
-        id: newId(),
-        title,
-        term,
-        createdAt: nowISO(),
-        notifyDate: null,
-        comment: m.comment || '',
-        commentUpdatedAt: m.comment ? m.commentUpdatedAt || nowISO() : null,
-        pinned: false,
-        priority: 0,
-        repeat: false,
-        done: false,
-        archived: false,
-        completedAt: null,
-        subtasks: (m.miniTasks || []).map((task) => ({
-          ...task,
-          comment: '',
-          commentUpdatedAt: null,
-        })),
-      },
-      ...prev,
-    ])
-    setMemos((prev) => prev.filter((x) => x.id !== memoId))
-  }
 
   // メモの並び替え（dragged を target の直前へ）。
   const reorderMemo = (draggedId, targetId) => {
@@ -659,12 +651,6 @@ export default function App() {
   const archivedTasks = tasks.filter((t) => t.archived && matchTask(t))
   const activeMemos = memos.filter((m) => !m.archived && matchMemo(m))
   const archivedMemos = memos.filter((m) => m.archived && matchMemo(m))
-  const termCounts = Object.fromEntries(
-    TERMS.map((t) => [
-      t.key,
-      activeTasks.filter((x) => x.term === t.key).length,
-    ]),
-  )
   // バッジ件数は検索に左右されない総数で表示。
   const archivedCount =
     tasks.filter((t) => t.archived).length +
@@ -699,12 +685,12 @@ export default function App() {
     onEdit: editMemo,
     onEditComment: editMemoComment,
     onSetStatus: setMemoStatus,
+    onSetTerm: setMemoTerm,
     onAddMiniTask: addMemoMiniTask,
     onToggleMiniTask: toggleMemoMiniTask,
     onEditMiniTask: editMemoMiniTask,
     onDeleteMiniTask: deleteMemoMiniTask,
     onReorder: reorderMemo,
-    onPromote: promoteMemo,
     onArchive: archiveMemo,
     onDelete: deleteMemo,
   }
@@ -717,13 +703,6 @@ export default function App() {
   }
   const openDetail = (type, id) => setDetail({ type, id })
   const closeDetail = () => setDetail(null)
-  const openTermFromMemo = (key) => {
-    changeActiveTerm(key)
-    setMemoOnly(false)
-    setBoardFull(false)
-    setMobilePane('board')
-    setView('board')
-  }
   const detailTask =
     detail?.type === 'task' ? tasks.find((t) => t.id === detail.id) : null
   const detailMemo =
@@ -732,13 +711,6 @@ export default function App() {
     detail?.type === 'knowledge'
       ? knowledge.find((item) => item.id === detail.id)
       : null
-  const sidePaneWidth = {
-    s: '380px',
-    m: '480px',
-    l: '620px',
-    xl: '50vw',
-  }[memoSize] || '480px'
-
   // --- 認証ゲート（Firebase 有効時のみ）---------------------------------
   if (firebaseEnabled && !authReady) {
     return (
@@ -771,7 +743,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <header className="header">
+      <header className="header dashboard-sidebar">
         <div className="brand">
           <img className="brand-mark" src="/auth-icon.png" alt="" />
           <h1>TaskCanvas</h1>
@@ -783,8 +755,6 @@ export default function App() {
             onClick={() => {
               setView('board')
               setSidePane('memo')
-              setBoardFull(false)
-              setMemoOnly(false)
             }}
           >
             MEMO
@@ -794,30 +764,14 @@ export default function App() {
             onClick={() => {
               setView('board')
               setSidePane('free')
-              setBoardFull(false)
-              setMemoOnly(false)
-              setMobilePane('memo')
             }}
           >
             Freespace
           </button>
           <button
-            className={view === 'organize' ? 'active' : ''}
-            onClick={() => {
-              setView('organize')
-              setSidePane('memo')
-              setBoardFull(false)
-              setMemoOnly(false)
-            }}
-          >
-            ナレッジ整理
-          </button>
-          <button
             className={view === 'archive' ? 'active' : ''}
             onClick={() => {
               setView('archive')
-              setBoardFull(false)
-              setMemoOnly(false)
             }}
           >
             完了フォルダ
@@ -828,7 +782,7 @@ export default function App() {
         </nav>
 
         <div className="search">
-          <span className="search-ic">🔍</span>
+          <span className="search-ic">⌕</span>
           <input
             value={query}
             placeholder="検索（タスク・メモ）"
@@ -858,62 +812,18 @@ export default function App() {
               }
             >
               {cloudStatus === 'on'
-                ? '☁ 同期中'
+                ? '同期中'
                 : cloudStatus === 'error'
-                  ? '☁ エラー'
-                  : '☁ 接続中'}
+                  ? 'エラー'
+                  : '接続中'}
             </span>
-          )}
-          {view === 'board' && (
-            <div className="mobile-pane-switch" role="group" aria-label="mobile display">
-              <button
-                type="button"
-                className={`ghost mobile-pane-btn memo ${mobilePane === 'memo' ? 'on' : ''}`}
-                onClick={() => setMobilePane('memo')}
-                title={'\u30e1\u30e2\u306e\u307f'}
-                aria-label={'\u30e1\u30e2\u306e\u307f'}
-              />
-              <button
-                type="button"
-                className={`ghost mobile-pane-btn board ${mobilePane === 'board' ? 'on' : ''}`}
-                onClick={() => setMobilePane('board')}
-                title={'\u30dc\u30fc\u30c9\u306e\u307f'}
-                aria-label={'\u30dc\u30fc\u30c9\u306e\u307f'}
-              />
-            </div>
-          )}
-          {view === 'board' && (
-            <>
-              <button
-                className={`ghost desktop-view-toggle ${memoOnly ? 'on' : ''}`}
-                onClick={toggleMemoOnly}
-                title={
-                  sidePane === 'free'
-                    ? 'Freespace だけを大きく表示（短期/中期/長期を隠す）'
-                    : 'MEMO だけを大きく表示（短期/中期/長期を隠す）'
-                }
-              >
-                {memoOnly
-                  ? '🗂 ボード表示'
-                  : sidePane === 'free'
-                    ? 'Freespaceのみ'
-                    : '📝 メモのみ'}
-              </button>
-              <button
-                className={`ghost desktop-view-toggle ${boardFull ? 'on' : ''}`}
-                onClick={toggleBoardFull}
-                title="短期/中期/長期を全体表示（メモを隠す）"
-              >
-                {boardFull ? '◧ メモを表示' : '⛶ ボード全体'}
-              </button>
-            </>
           )}
           {dueCount > 0 && (
             <div
               className="due-indicator"
               title="お知らせ日付が来たタスクがあります"
             >
-              🔔 {dueCount}件
+              通知 {dueCount}件
             </div>
           )}
           {user && (
@@ -939,86 +849,25 @@ export default function App() {
       </header>
 
       <div
-        className={`layout ${
-          view === 'board'
-            ? `mobile-${mobilePane}`
-            : view === 'organize'
-              ? 'mobile-organize'
-              : 'mobile-board'
-        } ${
-          view === 'organize' ? 'is-knowledge-organize' : ''
-        } ${
-          boardFull ? 'is-board-full' : ''
-        } ${
-          memoOnly ? 'is-memo-only' : ''
-        }`}
+        className={`layout ${view === 'board' ? 'is-single-pane' : 'mobile-board'}`}
       >
         {view !== 'archive' &&
           (view === 'board' && sidePane === 'free' ? (
             <KnowledgePanel
-              style={{ '--memo-w': sidePaneWidth }}
               onOpenDetail={(id) => openDetail('knowledge', id)}
               {...knowledgeProps}
             />
           ) : (
             <MemoPanel
               memos={activeMemos}
-              size={memoSize}
-              onSizeChange={changeMemoSize}
               onAdd={addMemo}
               onOpenDetail={(id) => openDetail('memo', id)}
               {...memoProps}
             />
           ))}
 
-        {view === 'board' && (
-          <div className="memo-term-summary" aria-label="board task counts">
-            {TERMS.map((t) => (
-              <button
-                key={t.key}
-                className="memo-term-chip"
-                style={{ '--term': t.color, '--term-soft': t.soft }}
-                onClick={() => openTermFromMemo(t.key)}
-                type="button"
-              >
-                <span className="memo-term-dot" />
-                <span className="memo-term-label">{t.label}</span>
-                <span className="memo-term-count">{termCounts[t.key] ?? 0}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
-        <div className="main-area">
-          {view === 'board' ? (
-            <BoardPanel
-              terms={TERMS}
-              activeKey={activeTerm}
-              onSelect={changeActiveTerm}
-              counts={termCounts}
-              term={TERMS.find((t) => t.key === activeTerm) || TERMS[0]}
-              tasks={sortFilterTasks(
-                activeTasks.filter((t) => t.term === activeTerm),
-              )}
-              sortKey={sortKey}
-              onSortChange={setSortKey}
-              filterKey={filterKey}
-              onFilterChange={setFilterKey}
-              templates={templates}
-              onUseTemplate={useTemplate}
-              onAddTemplate={addTemplate}
-              onRemoveTemplate={removeTemplate}
-              onMoveToTerm={moveTaskToTerm}
-              onAdd={addTask}
-              onOpenDetail={(id) => openDetail('task', id)}
-              {...taskProps}
-            />
-          ) : view === 'organize' ? (
-            <KnowledgePanel
-              onOpenDetail={(id) => openDetail('knowledge', id)}
-              {...knowledgeProps}
-            />
-          ) : (
+        {view !== 'board' && (
+          <div className="main-area">
             <Archive
               tasks={archivedTasks}
               memos={archivedMemos}
@@ -1027,8 +876,8 @@ export default function App() {
               onRestoreMemo={restoreMemo}
               onDeleteMemo={deleteMemo}
             />
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* 拡大表示（タスク／メモ／ナレッジ） */}

@@ -175,7 +175,7 @@ function Subtask({ taskId, sub, onToggle, onEdit, onEditComment, onDelete }) {
             setOpenC((v) => !v)
           }}
         >
-          💬
+          C
         </button>
         <button
           className="sub-del"
@@ -208,7 +208,7 @@ function Subtask({ taskId, sub, onToggle, onEdit, onEditComment, onDelete }) {
             setOpenC(true)
           }}
         >
-          {'\uD83D\uDCAC '}
+          コメント{' '}
           {sub.commentUpdatedAt && (
             <span className="comment-date">{fmtDate(sub.commentUpdatedAt)}</span>
           )}
@@ -405,18 +405,18 @@ export default function TaskCard({
           title={task.pinned ? 'ピンを外す' : 'ピン留め（先頭に固定）'}
           onClick={() => onTogglePin(task.id)}
         >
-          📌
+          PIN
         </button>
       </div>
 
       <div className="card-meta">
-        <span className="date">🗓 {fmtDate(task.createdAt)}</span>
+        <span className="date">作成 {fmtDate(task.createdAt)}</span>
         <button
           className={`notify-chip ${due ? 'due' : ''} ${task.notifyDate ? 'set' : ''}`}
           onClick={() => setOpenNotify((v) => !v)}
           title="お知らせ日付を設定／変更"
         >
-          🔔 {task.notifyDate ? fmtMD(task.notifyDate) : '通知'}
+          通知 {task.notifyDate ? fmtMD(task.notifyDate) : ''}
           {due && (isToday(task.notifyDate) ? '・今日' : '・経過')}
         </button>
         {prio && (
@@ -428,10 +428,10 @@ export default function TaskCard({
               background: `color-mix(in srgb, ${prio.color} 16%, transparent)`,
             }}
           >
-            🚩 {prio.label}
+            優先 {prio.label}
           </span>
         )}
-        {task.repeat && <span className="repeat-flag">🔁 繰り返し</span>}
+        {task.repeat && <span className="repeat-flag">↻ 繰り返し</span>}
         {task.subtasks.length > 0 && (
           <span className="sub-progress">
             {doneSubs}/{task.subtasks.length}
@@ -484,7 +484,7 @@ export default function TaskCard({
                 setOpenComment(true)
               }}
             >
-              {'\uD83D\uDCAC '}
+              コメント{' '}
               {taskCommentDate && (
                 <span className="comment-date">{fmtDate(taskCommentDate)}</span>
               )}
@@ -585,7 +585,7 @@ export default function TaskCard({
             setOpenComment((v) => !v)
           }}
         >
-          💬
+          C
         </button>
         <button
           className="mini"
@@ -593,14 +593,14 @@ export default function TaskCard({
           style={prio ? { color: prio.color, borderColor: prio.color } : undefined}
           onClick={() => onSetPriority(task.id, ((task.priority || 0) + 1) % 4)}
         >
-          🚩 {prio ? prio.label : '—'}
+          優先 {prio ? prio.label : '—'}
         </button>
         <button
           className={`mini ${task.repeat ? 'on-rep' : ''}`}
           title="完了時に繰り返し生成"
           onClick={() => onToggleRepeat(task.id)}
         >
-          🔁
+          ↻
         </button>
 
         {TERMS.filter((t) => t.key !== task.term).map((t) => (
@@ -628,7 +628,7 @@ export default function TaskCard({
             title="削除"
             onClick={() => onDelete(task.id)}
           >
-            🗑
+            削除
           </button>
         </div>
       </div>

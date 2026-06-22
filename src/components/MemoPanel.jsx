@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { linkify } from '../linkify'
+import { MEMO_TERMS } from '../constants'
 
 const fmtDate = (iso) => {
   const d = new Date(iso)
@@ -8,32 +9,35 @@ const fmtDate = (iso) => {
   ).padStart(2, '0')}`
 }
 
-// メモ欄の幅プリセット（横並びレイアウト時に有効）。
-// w が null の「全幅」はボードを隠してメモを横いっぱいに表示する。
-const SIZES = [
-  { key: 's', label: '小', w: 380 },
-  { key: 'm', label: '標準', w: 480 },
-  { key: 'l', label: '大', w: 620 },
-  { key: 'xl', label: '最大', w: '50vw' },
-]
+const fmtDateTime = (iso) => {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${fmtDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(
+    d.getMinutes(),
+  ).padStart(2, '0')}`
+}
 
 // 装飾ボタンの定義。マーカーだけ背景色＋文字色をまとめて適用する。
 const FORMATS = [
   { key: 'bold', label: 'B', title: '太字', cls: 'fb-bold' },
   { key: 'strikeThrough', label: 'S', title: '取り消し線', cls: 'fb-strike' },
   { key: 'underline', label: 'U', title: '下線', cls: 'fb-under' },
-  { key: 'marker', label: '🖍', title: 'マーカー', cls: 'fb-marker' },
+  { key: 'marker', label: 'M', title: 'マーカー', cls: 'fb-marker' },
 ]
 
 const MEMO_STATUSES = [
-  { key: 'action', label: 'ACTION', description: '自分が対応する' },
-  { key: 'schedule', label: 'SCHEDULE', description: '予定・日時が決まっている' },
-  { key: 'waiting', label: 'WAITING', description: '返答・対応待ち' },
-  { key: 'note', label: 'NOTE', description: '情報・メモ' },
+  { key: 'action', label: 'ACTION', description: '自分が対応する', color: '#c9344f', soft: '#fdecef' },
+  { key: 'schedule', label: 'SCHEDULE', description: '予定・日時が決まっている', color: '#2563b8', soft: '#eaf3ff' },
+  { key: 'waiting', label: 'WAITING', description: '返答・対応待ち', color: '#a86716', soft: '#fff4df' },
+  { key: 'note', label: 'NOTE', description: '情報・メモ', color: '#6656b8', soft: '#f1efff' },
 ]
 
 const memoStatus = (memo) =>
   MEMO_STATUSES.some((status) => status.key === memo.status) ? memo.status : 'note'
+
+const memoTerm = (memo) =>
+  MEMO_TERMS.some((term) => term.key === memo.term) ? memo.term : 'memo'
 
 const FORMAT_TAGS = {
   bold: 'b',
@@ -77,8 +81,8 @@ function applyFormat(key) {
 
   if (key === 'marker') {
     // 黄色ハイライト＋濃い文字色で蛍光ペン風に。
-    document.execCommand('hiliteColor', false, '#fde047')
-    document.execCommand('foreColor', false, '#1a1a1a')
+    document.execCommand('hiliteColor', false, '#dbeafe')
+    document.execCommand('foreColor', false, '#18181b')
   } else {
     document.execCommand(key, false, null)
   }
@@ -131,6 +135,15 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
           {linkify(task.title)}
         </span>
       )}
+      {fmtDateTime(task.createdAt) && (
+        <time
+          className="memo-mini-created-at"
+          dateTime={task.createdAt}
+          title="サブタスク登録日時"
+        >
+          {fmtDateTime(task.createdAt)}
+        </time>
+      )}
       <button
         type="button"
         className="memo-mini-delete"
@@ -152,12 +165,12 @@ export function MemoRow({
   onEdit,
   onEditComment,
   onSetStatus,
+  onSetTerm,
   onAddMiniTask,
   onToggleMiniTask,
   onEditMiniTask,
   onDeleteMiniTask,
   onReorder,
-  onPromote,
   onArchive,
   onDelete,
 }) {
@@ -233,20 +246,31 @@ export function MemoRow({
           checked={memo.done}
           onChange={() => onToggleDone(memo.id)}
         />
-        <div
-          ref={ref}
-          className="memo-rich"
-          contentEditable
-          suppressContentEditableWarning
-          onBlur={save}
-          onKeyDown={(e) => {
-            // Enter で確定（改行は Shift+Enter）。
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              e.currentTarget.blur()
-            }
-          }}
-        />
+        <div className="memo-content-line">
+          <div
+            ref={ref}
+            className="memo-rich"
+            contentEditable
+            suppressContentEditableWarning
+            onBlur={save}
+            onKeyDown={(e) => {
+              // Enter で確定（改行は Shift+Enter）。
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                e.currentTarget.blur()
+              }
+            }}
+          />
+          {fmtDateTime(memo.createdAt) && (
+            <time
+              className="memo-created-at"
+              dateTime={memo.createdAt}
+              title="登録日時"
+            >
+              {fmtDateTime(memo.createdAt)}
+            </time>
+          )}
+        </div>
         {openC ? (
           <textarea
             className="memo-comment-edit"
@@ -272,7 +296,7 @@ export function MemoRow({
               setOpenC(true)
             }}
           >
-            {'\uD83D\uDCAC '}
+            コメント{' '}
             {memo.commentUpdatedAt && (
               <span className="comment-date">{fmtDate(memo.commentUpdatedAt)}</span>
             )}
@@ -315,6 +339,24 @@ export function MemoRow({
         )}
         <div className="memo-row-actions">
           <select
+            className={`memo-term-select is-${memoTerm(memo)}`}
+            value={memoTerm(memo)}
+            onChange={(e) => onSetTerm(memo.id, e.target.value)}
+            aria-label="メモの登録先"
+            title="登録先を変更"
+          >
+            {MEMO_TERMS.map((term) => (
+              <option
+                key={term.key}
+                value={term.key}
+                className={`is-${term.key}`}
+                style={{ color: term.color, background: term.soft }}
+              >
+                {term.label}
+              </option>
+            ))}
+          </select>
+          <select
             className={`memo-status is-${memoStatus(memo)}`}
             value={memoStatus(memo)}
             onChange={(e) => onSetStatus(memo.id, e.target.value)}
@@ -322,7 +364,12 @@ export function MemoRow({
             title={`${MEMO_STATUSES.find((status) => status.key === memoStatus(memo))?.description}（クリックで変更）`}
           >
             {MEMO_STATUSES.map((status) => (
-              <option key={status.key} value={status.key}>
+              <option
+                key={status.key}
+                value={status.key}
+                className={`is-${status.key}`}
+                style={{ color: status.color, background: status.soft }}
+              >
                 {status.label}
               </option>
             ))}
@@ -338,23 +385,16 @@ export function MemoRow({
             </button>
           )}
           <button
-            className="memo-to-sprint"
-            title="SPRINTのタスクへ移動"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onPromote(memo.id, 'short')}
-          >
-            SPRINTへ
-          </button>
-          <button
             className={`memo-cmt ${memo.comment ? 'has' : ''}`}
             title="コメント"
+            aria-label="コメント"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               setCDraft(memo.comment || '')
               setOpenC((v) => !v)
             }}
           >
-            💬
+            <span className="memo-comment-icon" aria-hidden="true" />
           </button>
           <button
             type="button"
@@ -371,7 +411,7 @@ export function MemoRow({
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onArchive(memo.id)}
           >
-            📥
+            ✓
           </button>
           <button
             className="memo-del"
@@ -409,40 +449,51 @@ export function MemoRow({
             setOpenC(true)
           }}
         >
-          💬 {linkify(memo.comment)}
+          コメント {linkify(memo.comment)}
         </div>
       ) : null)}
     </div>
   )
 }
 
-// 末尾の「直接書き込む」行。Enter で確定して続けて書ける。
-function MemoNewLine({ inputRef, onAdd, status }) {
-  const commit = (keepFocus) => {
+// 「＋作成」から開く新規作成フォーム。
+function MemoComposer({ inputRef, onAdd, status, term, onMissingTerm, onAdded, onCancel }) {
+  const commit = () => {
     const el = inputRef.current
     if (!el) return
-    if (el.textContent.trim()) onAdd(el.innerHTML, status)
+    if (!el.textContent.trim()) return
+    if (!term) {
+      onMissingTerm()
+      return
+    }
+    onAdd(el.innerHTML, status, term)
     el.innerHTML = ''
-    if (keepFocus) requestAnimationFrame(() => el.focus())
+    onAdded()
   }
 
   return (
-    <div className="memo-row memo-new">
-      <span className="memo-cb-ghost" aria-hidden="true" />
+    <div className="memo-composer">
       <div
         ref={inputRef}
-        className="memo-rich"
+        className="memo-rich memo-compose-editor"
         contentEditable
         suppressContentEditableWarning
-        data-placeholder="ここに直接書き込み…"
-        onBlur={() => commit(false)}
+        data-placeholder="内容を入力…"
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
-            commit(true)
+            commit()
           }
         }}
       />
+      <div className="memo-compose-actions">
+        <button type="button" className="memo-compose-cancel" onClick={onCancel}>
+          キャンセル
+        </button>
+        <button type="button" className="memo-compose-submit" onClick={commit}>
+          作成
+        </button>
+      </div>
     </div>
   )
 }
@@ -450,43 +501,68 @@ function MemoNewLine({ inputRef, onAdd, status }) {
 // 左側のフリーメモボード。ボードに直接書き込め、選択文字に装飾もかけられる。
 export default function MemoPanel({
   memos,
-  size,
-  onSizeChange,
   onAdd,
   onToggleDone,
   onEdit,
   onEditComment,
   onSetStatus,
+  onSetTerm,
   onAddMiniTask,
   onToggleMiniTask,
   onEditMiniTask,
   onDeleteMiniTask,
   onReorder,
-  onPromote,
   onArchive,
   onDelete,
   onOpenDetail,
 }) {
   const newRef = useRef(null)
   const [statusFilter, setStatusFilter] = useState('all')
+  const [termFilter, setTermFilter] = useState('all')
+  const [composerOpen, setComposerOpen] = useState(false)
+  const [selectedTerm, setSelectedTerm] = useState(null)
+  const [termError, setTermError] = useState(false)
   const remaining = memos.filter((m) => !m.done).length
-  const filteredMemos =
-    statusFilter === 'all'
-      ? memos
-      : memos.filter((memo) => memoStatus(memo) === statusFilter)
-  const width = (SIZES.find((s) => s.key === size) || SIZES[1]).w
-  const widthValue = typeof width === 'number' ? `${width}px` : width
+  const filteredMemos = memos.filter(
+    (memo) =>
+      (statusFilter === 'all' || memoStatus(memo) === statusFilter) &&
+      (termFilter === 'all' || memoTerm(memo) === termFilter),
+  )
+  const termCounts = Object.fromEntries(
+    MEMO_TERMS.map((term) => [
+      term.key,
+      memos.filter((memo) => memoTerm(memo) === term.key).length,
+    ]),
+  )
 
   return (
-    <aside
-      className="memo-panel"
-      style={widthValue ? { '--memo-w': widthValue } : undefined}
-    >
+    <aside className="memo-panel">
       <div className="memo-head">
         <h2>
-          <span className="memo-icon">📝</span> MEMO
+          <span className="memo-icon">M</span> MEMO
         </h2>
-        <span className="memo-count">残り {remaining}</span>
+        <div className="memo-head-counts">
+          <span className="memo-count">残り {remaining}</span>
+          <div className="memo-head-term-counts" aria-label="分類別の件数">
+            {MEMO_TERMS.filter((term) => term.key !== 'memo').map((term) => (
+              <button
+                key={term.key}
+                type="button"
+                className={`memo-head-term-count ${termFilter === term.key ? 'is-active' : ''}`}
+                style={{ '--term': term.color, '--term-soft': term.soft }}
+                title={`${term.label} ${termCounts[term.key]}件（クリックで絞り込み${termFilter === term.key ? '解除' : ''}）`}
+                aria-pressed={termFilter === term.key}
+                onClick={() =>
+                  setTermFilter((current) => (current === term.key ? 'all' : term.key))
+                }
+              >
+                <span className="memo-head-term-dot" aria-hidden="true" />
+                <span>{term.label}</span>
+                <strong>{termCounts[term.key]}</strong>
+              </button>
+            ))}
+          </div>
+        </div>
         <select
           className={`memo-status-filter ${statusFilter === 'all' ? '' : `is-${statusFilter}`}`}
           value={statusFilter}
@@ -496,14 +572,83 @@ export default function MemoPanel({
         >
           <option value="all">ALL</option>
           {MEMO_STATUSES.map((status) => (
-            <option key={status.key} value={status.key}>
+            <option
+              key={status.key}
+              value={status.key}
+              className={`is-${status.key}`}
+              style={{ color: status.color, background: status.soft }}
+            >
               {status.label}
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          className="memo-create-entry"
+          onClick={() => {
+            if (composerOpen) {
+              newRef.current?.focus()
+              return
+            }
+            setComposerOpen(true)
+            setSelectedTerm(null)
+            setTermError(false)
+            requestAnimationFrame(() => newRef.current?.focus())
+          }}
+        >
+          ＋ 作成
+        </button>
       </div>
 
-      {/* 装飾ツールバー（左）＋ メモ幅の切替（右） */}
+      {composerOpen && (
+        <div className="memo-create-panel">
+          <div className="memo-term-picker" aria-label="登録先を選択">
+            {MEMO_TERMS.map((term) => (
+              <button
+                key={term.key}
+                className={`memo-term-chip ${selectedTerm === term.key ? 'is-selected' : ''}`}
+                style={{ '--term': term.color, '--term-soft': term.soft }}
+                type="button"
+                aria-pressed={selectedTerm === term.key}
+                title={term.hint}
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setSelectedTerm(term.key)
+                  setTermError(false)
+                  requestAnimationFrame(() => newRef.current?.focus())
+                }}
+              >
+                <span className="memo-term-dot" />
+                <span className="memo-term-label">{term.label}</span>
+                <span className="memo-term-count">{termCounts[term.key]}</span>
+              </button>
+            ))}
+          </div>
+          <p className={`memo-term-help ${termError ? 'is-error' : ''}`} aria-live="polite">
+            登録先を選択してください
+          </p>
+          <MemoComposer
+            inputRef={newRef}
+            onAdd={onAdd}
+            status={statusFilter === 'all' ? 'note' : statusFilter}
+            term={selectedTerm}
+            onMissingTerm={() => setTermError(true)}
+            onAdded={() => {
+              setComposerOpen(false)
+              setSelectedTerm(null)
+              setTermError(false)
+            }}
+            onCancel={() => {
+              if (newRef.current) newRef.current.innerHTML = ''
+              setComposerOpen(false)
+              setSelectedTerm(null)
+              setTermError(false)
+            }}
+          />
+        </div>
+      )}
+
+      {/* 装飾ツールバー */}
       <div className="memo-toolbar">
         {FORMATS.map((f) => (
           <button
@@ -520,31 +665,9 @@ export default function MemoPanel({
           </button>
         ))}
 
-        <div className="memo-size" title="メモ欄の幅">
-          {SIZES.map((s) => (
-            <button
-              key={s.key}
-              className={`size-btn ${size === s.key ? 'active' : ''}`}
-              onClick={() => onSizeChange(s.key)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
       </div>
 
-      <div
-        className="memo-board"
-        onClick={(e) => {
-          if (e.target.classList.contains('memo-board')) newRef.current?.focus()
-        }}
-      >
-        <MemoNewLine
-          inputRef={newRef}
-          onAdd={onAdd}
-          status={statusFilter === 'all' ? 'note' : statusFilter}
-        />
-
+      <div className="memo-board">
         {filteredMemos.map((memo) => (
           <MemoRow
             key={memo.id}
@@ -553,12 +676,12 @@ export default function MemoPanel({
             onEdit={onEdit}
             onEditComment={onEditComment}
             onSetStatus={onSetStatus}
+            onSetTerm={onSetTerm}
             onAddMiniTask={onAddMiniTask}
             onToggleMiniTask={onToggleMiniTask}
             onEditMiniTask={onEditMiniTask}
             onDeleteMiniTask={onDeleteMiniTask}
             onReorder={onReorder}
-            onPromote={onPromote}
             onArchive={onArchive}
             onDelete={onDelete}
             onOpenDetail={onOpenDetail}
