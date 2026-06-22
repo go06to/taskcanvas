@@ -25,14 +25,6 @@ const isAlarmDue = (item) => {
   return !Number.isNaN(time) && time <= Date.now()
 }
 
-// 装飾ボタンの定義。マーカーだけ背景色＋文字色をまとめて適用する。
-const FORMATS = [
-  { key: 'bold', label: 'B', title: '太字', cls: 'fb-bold' },
-  { key: 'strikeThrough', label: 'S', title: '取り消し線', cls: 'fb-strike' },
-  { key: 'underline', label: 'U', title: '下線', cls: 'fb-under' },
-  { key: 'marker', label: 'M', title: 'マーカー', cls: 'fb-marker' },
-]
-
 const MEMO_STATUSES = [
   { key: 'action', label: 'ACTION', description: '自分が対応する', color: '#c9344f', soft: '#fdecef' },
   { key: 'schedule', label: 'SCHEDULE', description: '予定・日時が決まっている', color: '#2563b8', soft: '#eaf3ff' },
@@ -45,13 +37,6 @@ const memoStatus = (memo) =>
 
 const memoTerm = (memo) =>
   MEMO_TERMS.some((term) => term.key === memo.term) ? memo.term : 'memo'
-
-const FORMAT_TAGS = {
-  bold: 'b',
-  strikeThrough: 's',
-  underline: 'u',
-  marker: 'mark',
-}
 
 function setNativeValue(el, value) {
   const setter = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value')?.set
@@ -78,21 +63,59 @@ function applyTextareaFormat(el, tag) {
   })
 }
 
-function applyFormat(key) {
+function applyMarker() {
   const active = document.activeElement
-  const tag = FORMAT_TAGS[key]
-  if (tag && active?.tagName === 'TEXTAREA') {
-    applyTextareaFormat(active, tag)
+  if (active?.tagName === 'TEXTAREA') {
+    applyTextareaFormat(active, 'mark')
     return
   }
 
-  if (key === 'marker') {
-    // 黄色ハイライト＋濃い文字色で蛍光ペン風に。
-    document.execCommand('hiliteColor', false, '#dbeafe')
-    document.execCommand('foreColor', false, '#18181b')
-  } else {
-    document.execCommand(key, false, null)
+  document.execCommand('hiliteColor', false, '#fef08a')
+  document.execCommand('foreColor', false, '#18181b')
+}
+
+function removeMarker() {
+  const active = document.activeElement
+  if (active?.tagName === 'TEXTAREA') {
+    const value = active.value || ''
+    const start = active.selectionStart ?? 0
+    const end = active.selectionEnd ?? value.length
+    const selected = value.slice(start, end).replace(/<\/?mark>/gi, '')
+    setNativeValue(active, value.slice(0, start) + selected + value.slice(end))
+    requestAnimationFrame(() => {
+      active.focus()
+      active.setSelectionRange(start, start + selected.length)
+    })
+    return
   }
+  document.execCommand('removeFormat', false, null)
+}
+
+function selectionHasMarker() {
+  const selection = window.getSelection()
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false
+
+  const range = selection.getRangeAt(0)
+  let element =
+    range.commonAncestorContainer.nodeType === Node.ELEMENT_NODE
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement
+
+  while (element) {
+    if (element.tagName === 'MARK') return true
+    const background = getComputedStyle(element).backgroundColor
+    if (background === 'rgb(254, 240, 138)') return true
+    if (element.isContentEditable) break
+    element = element.parentElement
+  }
+
+  const commandColor = String(document.queryCommandValue('hiliteColor') || '')
+  return commandColor === 'rgb(254, 240, 138)' || commandColor.toLowerCase() === '#fef08a'
+}
+
+function toggleMarker() {
+  if (selectionHasMarker()) removeMarker()
+  else applyMarker()
 }
 
 function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) {
@@ -301,6 +324,18 @@ export function MemoRow({
               }
             }}
           />
+          <button
+            type="button"
+            className="memo-title-marker"
+            title="選択した文字のマーカーを切り替える"
+            aria-label="マーカーを切り替える"
+            onMouseDown={(e) => {
+              e.preventDefault()
+              toggleMarker()
+            }}
+          >
+            <span className="memo-marker-swatch" aria-hidden="true" />
+          </button>
           {fmtDate(memo.createdAt) && (
             <time
               className="memo-created-at"
@@ -608,7 +643,7 @@ export default function MemoPanel({
     <aside className="memo-panel">
       <div className="memo-head">
         <h2>
-          <span className="memo-icon">M</span> MEMO
+          Task
         </h2>
         <div className="memo-head-counts">
           <span className="memo-count">残り {remaining}</span>
@@ -728,25 +763,6 @@ export default function MemoPanel({
           />
         </div>
       )}
-
-      {/* 装飾ツールバー */}
-      <div className="memo-toolbar">
-        {FORMATS.map((f) => (
-          <button
-            key={f.key}
-            className={`fmt-btn ${f.cls}`}
-            title={f.title}
-            // mousedown を抑止して選択範囲を保持したまま装飾を適用。
-            onMouseDown={(e) => {
-              e.preventDefault()
-              applyFormat(f.key)
-            }}
-          >
-            {f.label}
-          </button>
-        ))}
-
-      </div>
 
       <div className="memo-board">
         {filteredMemos.map((memo) => (

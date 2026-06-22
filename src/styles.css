@@ -118,7 +118,7 @@ body {
   border-radius: 10px;
   flex-shrink: 0;
   object-fit: cover;
-  filter: grayscale(1);
+  filter: none;
 }
 
 .brand h1 {
@@ -669,14 +669,18 @@ button.ghost.on {
   }
 
   .dashboard-sidebar .account {
+    position: relative;
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
     border-radius: 12px;
     padding: 6px;
   }
 
   .dashboard-sidebar .account .ghost {
-    margin-left: auto;
+    position: absolute;
+    left: 50%;
+    margin: 0;
+    transform: translateX(-50%);
   }
 
   .layout {
@@ -819,6 +823,36 @@ button.ghost.on {
   opacity: 0.5;
 }
 
+.memo-marker-swatch {
+  width: 14px;
+  height: 8px;
+  border-radius: 3px;
+  background: #fef08a;
+  box-shadow: inset 0 0 0 1px rgba(161, 124, 0, 0.22);
+}
+
+.memo-title-marker {
+  width: 26px;
+  min-width: 26px;
+  height: 24px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.58;
+  transition: 0.15s;
+}
+
+.memo-title-marker:hover {
+  border-color: #d4b514;
+  background: #fffdf0;
+  opacity: 1;
+}
+
+
 .memo-create-entry {
   min-height: 30px;
   padding: 4px 12px;
@@ -923,8 +957,7 @@ button.ghost.on {
 }
 
 .memo-head,
-.memo-hint,
-.memo-toolbar {
+.memo-hint {
   flex-shrink: 0;
 }
 
@@ -933,24 +966,29 @@ button.ghost.on {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 2px 0 13px;
+  border-bottom: 1px solid var(--line);
 }
 
 .memo-head h2 {
-  font-size: 17px;
+  position: relative;
+  padding-left: 13px;
+  font-size: 24px;
+  line-height: 1.15;
   margin: 0;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: -0.025em;
 }
 
-.memo-icon {
-  display: inline-grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid var(--line-strong);
-  border-radius: 5px;
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 800;
+.memo-head h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 4px;
+  height: 23px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .memo-head-counts {
@@ -1128,55 +1166,6 @@ button.ghost.on {
   color: var(--muted);
 }
 
-/* 装飾ツールバー */
-.memo-toolbar {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.fmt-btn {
-  width: 34px;
-  height: 30px;
-  border: 1px solid var(--line-strong);
-  background: var(--surface-soft);
-  color: var(--text);
-  border-radius: 8px;
-  font-size: 14px;
-  cursor: pointer;
-  transition: 0.15s;
-}
-
-.fmt-btn:hover {
-  background: color-mix(in srgb, var(--amber) 10%, white);
-  border-color: var(--amber);
-}
-
-.fmt-btn:active {
-  transform: translateY(1px);
-}
-
-.fmt-btn.fb-bold {
-  font-weight: 900;
-}
-
-.fmt-btn.fb-strike {
-  text-decoration: line-through;
-  text-decoration-thickness: 2px;
-  font-weight: 700;
-}
-
-.fmt-btn.fb-under {
-  text-decoration: underline;
-  text-decoration-thickness: 2px;
-  font-weight: 700;
-}
-
-.fmt-btn.fb-marker {
-  font-size: 13px;
-}
-
 /* メモボード（1枚の面の中に直接書き込む） */
 .memo-board {
   flex: 1;
@@ -1297,11 +1286,17 @@ button.ghost.on {
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: 6px;
+}
+
+.memo-content-line > .memo-rich {
+  width: auto;
+  flex: 0 1 auto;
 }
 
 .memo-created-at {
   flex: 0 0 auto;
+  margin-left: auto;
   margin-top: 2px;
   color: var(--faint);
   font-size: 10.5px;
@@ -3627,15 +3622,6 @@ button.ghost.on {
     padding: 14px 12px;
   }
 
-  .memo-toolbar {
-    align-items: stretch;
-  }
-
-  .fmt-btn {
-    width: 36px;
-    height: 34px;
-  }
-
   .memo-board {
     max-height: 42dvh;
     padding: 7px;
@@ -4186,7 +4172,7 @@ button.ghost.on {
   }
 
   .memo-head h2 {
-    font-size: 15px;
+    font-size: 18px;
   }
 
   .memo-count {
@@ -4205,17 +4191,6 @@ button.ghost.on {
   .board-hint,
   .board-controls {
     display: none;
-  }
-
-  .memo-toolbar {
-    gap: 4px;
-    margin-top: 7px;
-  }
-
-  .fmt-btn {
-    width: 30px;
-    height: 28px;
-    border-radius: 7px;
   }
 
   .memo-board {
