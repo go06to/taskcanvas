@@ -8,7 +8,7 @@ import BoardPanel from './components/BoardPanel'
 import Archive from './components/Archive'
 import MemoPanel, { MemoRow } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
-import KnowledgePanel from './components/KnowledgePanel'
+import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
 
 // ログインユーザーごとの localStorage キャッシュキー（未ログイン/無効時は共通キー）。
 const localKey = (user) =>
@@ -59,7 +59,7 @@ export default function App() {
   const [view, setView] = useState('board') // 'board' | 'organize' | 'archive'
   const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
   const [query, setQuery] = useState('') // 検索キーワード
-  const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo', id}
+  const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge', id}
   const [sortKey, setSortKey] = useState(
     () => localStorage.getItem('tb-sort') || 'manual',
   )
@@ -707,6 +707,10 @@ export default function App() {
     detail?.type === 'task' ? tasks.find((t) => t.id === detail.id) : null
   const detailMemo =
     detail?.type === 'memo' ? memos.find((m) => m.id === detail.id) : null
+  const detailKnowledge =
+    detail?.type === 'knowledge'
+      ? knowledge.find((item) => item.id === detail.id)
+      : null
   const sidePaneWidth = {
     s: '380px',
     m: '480px',
@@ -947,7 +951,11 @@ export default function App() {
       >
         {view !== 'archive' &&
           (view === 'board' && sidePane === 'free' ? (
-            <KnowledgePanel style={{ '--memo-w': sidePaneWidth }} {...knowledgeProps} />
+            <KnowledgePanel
+              style={{ '--memo-w': sidePaneWidth }}
+              onOpenDetail={(id) => openDetail('knowledge', id)}
+              {...knowledgeProps}
+            />
           ) : (
             <MemoPanel
               memos={activeMemos}
@@ -1002,7 +1010,10 @@ export default function App() {
               {...taskProps}
             />
           ) : view === 'organize' ? (
-            <KnowledgePanel {...knowledgeProps} />
+            <KnowledgePanel
+              onOpenDetail={(id) => openDetail('knowledge', id)}
+              {...knowledgeProps}
+            />
           ) : (
             <Archive
               tasks={archivedTasks}
@@ -1016,15 +1027,20 @@ export default function App() {
         </div>
       </div>
 
-      {/* 拡大表示（タスク／メモ） */}
-      {(detailTask || detailMemo) && (
+      {/* 拡大表示（タスク／メモ／ナレッジ） */}
+      {(detailTask || detailMemo || detailKnowledge) && (
         <div
           className="detail-overlay"
           onClick={(e) => {
             if (e.target.classList.contains('detail-overlay')) closeDetail()
           }}
         >
-          <div className="detail-modal">
+          <div
+            className={`detail-modal ${detailKnowledge ? 'knowledge-detail-modal' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-label={detailKnowledge ? 'ナレッジの拡大表示' : '詳細の拡大表示'}
+          >
             <button className="detail-close" onClick={closeDetail} title="閉じる">
               ✕
             </button>
@@ -1035,6 +1051,14 @@ export default function App() {
               <div className="memo-detail">
                 <MemoRow memo={detailMemo} large onOpenDetail={() => {}} {...memoProps} />
               </div>
+            )}
+            {detailKnowledge && (
+              <KnowledgeCard
+                item={detailKnowledge}
+                large
+                onOpenDetail={() => {}}
+                {...knowledgeProps}
+              />
             )}
           </div>
         </div>

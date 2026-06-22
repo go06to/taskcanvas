@@ -28,7 +28,14 @@ const parseTags = (value) =>
 
 const tagsToText = (tags) => (Array.isArray(tags) ? tags.join(' ') : '')
 
-function KnowledgeCard({ item, onUpdate, onDelete, onTogglePin }) {
+export function KnowledgeCard({
+  item,
+  large = false,
+  onUpdate,
+  onDelete,
+  onTogglePin,
+  onOpenDetail,
+}) {
   const [draft, setDraft] = useState({
     title: item.title || '',
     body: item.body || '',
@@ -64,7 +71,7 @@ function KnowledgeCard({ item, onUpdate, onDelete, onTogglePin }) {
 
   return (
     <article
-      className={`knowledge-card ${item.pinned ? 'is-pinned' : ''}`}
+      className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${large ? 'large' : ''}`}
       style={{ '--note': item.color || defaultColor }}
     >
       <div className="knowledge-card-top">
@@ -75,6 +82,17 @@ function KnowledgeCard({ item, onUpdate, onDelete, onTogglePin }) {
           onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))}
           onBlur={save}
         />
+        {!large && (
+          <button
+            type="button"
+            className="knowledge-expand"
+            onClick={() => onOpenDetail(item.id)}
+            title="拡大表示"
+            aria-label="拡大表示"
+          >
+            ⤢
+          </button>
+        )}
         <button
           type="button"
           className={`knowledge-pin ${item.pinned ? 'on' : ''}`}
@@ -147,6 +165,7 @@ export default function KnowledgePanel({
   onUpdate,
   onDelete,
   onTogglePin,
+  onOpenDetail,
 }) {
   const [query, setQuery] = useState('')
   const [draft, setDraft] = useState({
@@ -270,6 +289,7 @@ export default function KnowledgePanel({
             onUpdate={onUpdate}
             onDelete={onDelete}
             onTogglePin={onTogglePin}
+            onOpenDetail={onOpenDetail}
           />
         ))}
         {filtered.length === 0 && (

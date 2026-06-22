@@ -1316,6 +1316,7 @@ button.ghost.on {
   gap: 8px;
 }
 
+.knowledge-expand,
 .knowledge-pin,
 .knowledge-delete {
   flex-shrink: 0;
@@ -1326,6 +1327,7 @@ button.ghost.on {
   line-height: 1;
 }
 
+.knowledge-expand,
 .knowledge-pin {
   width: 28px;
   height: 28px;
@@ -1333,6 +1335,7 @@ button.ghost.on {
   font-size: 14px;
 }
 
+.knowledge-expand:hover,
 .knowledge-pin:hover,
 .knowledge-pin.on {
   background: rgba(255, 255, 255, 0.55);
@@ -1388,6 +1391,34 @@ button.ghost.on {
   text-align: center;
 }
 
+/* ナレッジの拡大表示 */
+.detail-modal.knowledge-detail-modal {
+  width: min(94vw, 900px);
+}
+
+.knowledge-card.large {
+  min-height: min(68vh, 620px);
+  padding: 20px;
+  gap: 16px;
+  box-shadow: none;
+}
+
+.knowledge-card.large .knowledge-title-input {
+  font-size: 22px;
+}
+
+.knowledge-card.large .knowledge-body-input {
+  flex: 1;
+  min-height: 340px;
+  font-size: 16px;
+  line-height: 1.75;
+}
+
+.knowledge-card.large .knowledge-meta-input {
+  min-height: 38px;
+  font-size: 14px;
+}
+
 @media (max-width: 720px) {
   .knowledge-head {
     padding: 14px 14px 10px;
@@ -1417,6 +1448,19 @@ button.ghost.on {
   .knowledge-grid {
     grid-template-columns: 1fr;
     padding: 0 14px 14px;
+  }
+
+  .knowledge-card.large {
+    min-height: calc(100dvh - 88px);
+    padding: 14px;
+  }
+
+  .knowledge-card.large .knowledge-body-input {
+    min-height: 45dvh;
+  }
+
+  .detail-modal.knowledge-detail-modal {
+    width: 100%;
   }
 }
 
