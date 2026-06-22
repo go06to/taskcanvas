@@ -25,6 +25,16 @@ const FORMATS = [
   { key: 'marker', label: '🖍', title: 'マーカー', cls: 'fb-marker' },
 ]
 
+const MEMO_STATUSES = [
+  { key: 'action', label: 'ACTION', description: '自分が対応する' },
+  { key: 'schedule', label: 'SCHEDULE', description: '予定・日時が決まっている' },
+  { key: 'waiting', label: 'WAITING', description: '返答・対応待ち' },
+  { key: 'note', label: 'NOTE', description: '情報・メモ' },
+]
+
+const memoStatus = (memo) =>
+  MEMO_STATUSES.some((status) => status.key === memo.status) ? memo.status : 'note'
+
 const FORMAT_TAGS = {
   bold: 'b',
   strikeThrough: 's',
@@ -74,6 +84,65 @@ function applyFormat(key) {
   }
 }
 
+function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(task.title)
+
+  useEffect(() => {
+    if (!editing) setDraft(task.title)
+  }, [editing, task.title])
+
+  const save = () => {
+    const title = draft.trim()
+    if (title) onEdit(memoId, task.id, title)
+    else setDraft(task.title)
+    setEditing(false)
+  }
+
+  return (
+    <div className={`memo-mini-task ${task.done ? 'is-done' : ''}`}>
+      <input
+        type="checkbox"
+        checked={task.done}
+        onChange={() => onToggle(memoId, task.id)}
+        aria-label={`${task.title}を完了にする`}
+      />
+      {editing ? (
+        <input
+          className="memo-mini-edit"
+          value={draft}
+          autoFocus
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') save()
+            if (e.key === 'Escape') {
+              setDraft(task.title)
+              setEditing(false)
+            }
+          }}
+        />
+      ) : (
+        <span
+          className="memo-mini-title"
+          title="クリックで編集"
+          onClick={() => setEditing(true)}
+        >
+          {linkify(task.title)}
+        </span>
+      )}
+      <button
+        type="button"
+        className="memo-mini-delete"
+        title="サブタスクを削除"
+        onClick={() => onDelete(memoId, task.id)}
+      >
+        ×
+      </button>
+    </div>
+  )
+}
+
 // 1行のリッチテキスト編集（contentEditable）。直接書き込み・装飾・コメント。
 export function MemoRow({
   memo,
@@ -82,6 +151,11 @@ export function MemoRow({
   onToggleDone,
   onEdit,
   onEditComment,
+  onSetStatus,
+  onAddMiniTask,
+  onToggleMiniTask,
+  onEditMiniTask,
+  onDeleteMiniTask,
   onReorder,
   onPromote,
   onArchive,
@@ -90,6 +164,9 @@ export function MemoRow({
   const ref = useRef(null)
   const [openC, setOpenC] = useState(false)
   const [cDraft, setCDraft] = useState(memo.comment || '')
+  const [openMini, setOpenMini] = useState(false)
+  const [miniDraft, setMiniDraft] = useState('')
+  const miniTasks = Array.isArray(memo.miniTasks) ? memo.miniTasks : []
 
   // 初期内容と外部変更の反映（編集中＝フォーカス時は触らない）。
   useEffect(() => {
@@ -109,6 +186,13 @@ export function MemoRow({
     setOpenC(false)
   }
 
+  const addMiniTask = () => {
+    const title = miniDraft.trim()
+    if (!title) return
+    onAddMiniTask(memo.id, title)
+    setMiniDraft('')
+  }
+
   return (
     <div
       className={`memo-row-wrap ${large ? 'large' : ''}`}
@@ -126,7 +210,9 @@ export function MemoRow({
       <div
         className={`memo-row ${memo.done ? 'is-done' : ''} ${
           large ? 'is-large' : 'has-drag'
-        } ${openC || memo.comment ? 'has-comment' : ''}`}
+        } ${openC || memo.comment ? 'has-comment' : ''} ${
+          openMini || miniTasks.length > 0 ? 'has-mini' : ''
+        }`}
       >
         {!large && (
           <span
@@ -193,7 +279,54 @@ export function MemoRow({
             {linkify(memo.comment)}
           </div>
         ) : null}
+        {(openMini || miniTasks.length > 0) && (
+          <div className="memo-mini-panel">
+            {miniTasks.map((task) => (
+              <MemoMiniTask
+                key={task.id}
+                memoId={memo.id}
+                task={task}
+                onToggle={onToggleMiniTask}
+                onEdit={onEditMiniTask}
+                onDelete={onDeleteMiniTask}
+              />
+            ))}
+            {openMini && (
+              <div className="memo-mini-add">
+                <input
+                  value={miniDraft}
+                  autoFocus
+                  placeholder="サブタスクを入力"
+                  onChange={(e) => setMiniDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addMiniTask()
+                    if (e.key === 'Escape') {
+                      setMiniDraft('')
+                      setOpenMini(false)
+                    }
+                  }}
+                />
+                <button type="button" onClick={addMiniTask} disabled={!miniDraft.trim()}>
+                  追加
+                </button>
+              </div>
+            )}
+          </div>
+        )}
         <div className="memo-row-actions">
+          <select
+            className={`memo-status is-${memoStatus(memo)}`}
+            value={memoStatus(memo)}
+            onChange={(e) => onSetStatus(memo.id, e.target.value)}
+            aria-label="メモのステータス"
+            title={`${MEMO_STATUSES.find((status) => status.key === memoStatus(memo))?.description}（クリックで変更）`}
+          >
+            {MEMO_STATUSES.map((status) => (
+              <option key={status.key} value={status.key}>
+                {status.label}
+              </option>
+            ))}
+          </select>
           {!large && (
             <button
               className="memo-expand"
@@ -222,6 +355,15 @@ export function MemoRow({
             }}
           >
             💬
+          </button>
+          <button
+            type="button"
+            className={`memo-mini-toggle ${miniTasks.length ? 'has' : ''}`}
+            title="サブタスクを追加"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setOpenMini((value) => !value)}
+          >
+            ＋ サブタスク
           </button>
           <button
             className="memo-archive"
@@ -275,11 +417,11 @@ export function MemoRow({
 }
 
 // 末尾の「直接書き込む」行。Enter で確定して続けて書ける。
-function MemoNewLine({ inputRef, onAdd }) {
+function MemoNewLine({ inputRef, onAdd, status }) {
   const commit = (keepFocus) => {
     const el = inputRef.current
     if (!el) return
-    if (el.textContent.trim()) onAdd(el.innerHTML)
+    if (el.textContent.trim()) onAdd(el.innerHTML, status)
     el.innerHTML = ''
     if (keepFocus) requestAnimationFrame(() => el.focus())
   }
@@ -314,6 +456,11 @@ export default function MemoPanel({
   onToggleDone,
   onEdit,
   onEditComment,
+  onSetStatus,
+  onAddMiniTask,
+  onToggleMiniTask,
+  onEditMiniTask,
+  onDeleteMiniTask,
   onReorder,
   onPromote,
   onArchive,
@@ -321,7 +468,12 @@ export default function MemoPanel({
   onOpenDetail,
 }) {
   const newRef = useRef(null)
+  const [statusFilter, setStatusFilter] = useState('all')
   const remaining = memos.filter((m) => !m.done).length
+  const filteredMemos =
+    statusFilter === 'all'
+      ? memos
+      : memos.filter((memo) => memoStatus(memo) === statusFilter)
   const width = (SIZES.find((s) => s.key === size) || SIZES[1]).w
   const widthValue = typeof width === 'number' ? `${width}px` : width
 
@@ -335,6 +487,20 @@ export default function MemoPanel({
           <span className="memo-icon">📝</span> MEMO
         </h2>
         <span className="memo-count">残り {remaining}</span>
+        <select
+          className={`memo-status-filter ${statusFilter === 'all' ? '' : `is-${statusFilter}`}`}
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value)}
+          aria-label="メモをステータスで絞り込む"
+          title="ステータスで絞り込む"
+        >
+          <option value="all">ALL</option>
+          {MEMO_STATUSES.map((status) => (
+            <option key={status.key} value={status.key}>
+              {status.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* 装飾ツールバー（左）＋ メモ幅の切替（右） */}
@@ -373,15 +539,24 @@ export default function MemoPanel({
           if (e.target.classList.contains('memo-board')) newRef.current?.focus()
         }}
       >
-        <MemoNewLine inputRef={newRef} onAdd={onAdd} />
+        <MemoNewLine
+          inputRef={newRef}
+          onAdd={onAdd}
+          status={statusFilter === 'all' ? 'note' : statusFilter}
+        />
 
-        {memos.map((memo) => (
+        {filteredMemos.map((memo) => (
           <MemoRow
             key={memo.id}
             memo={memo}
             onToggleDone={onToggleDone}
             onEdit={onEdit}
             onEditComment={onEditComment}
+            onSetStatus={onSetStatus}
+            onAddMiniTask={onAddMiniTask}
+            onToggleMiniTask={onToggleMiniTask}
+            onEditMiniTask={onEditMiniTask}
+            onDeleteMiniTask={onDeleteMiniTask}
             onReorder={onReorder}
             onPromote={onPromote}
             onArchive={onArchive}
@@ -390,7 +565,11 @@ export default function MemoPanel({
           />
         ))}
 
-        {memos.length === 0 && <p className="empty memo-empty">メモはありません</p>}
+        {filteredMemos.length === 0 && (
+          <p className="empty memo-empty">
+            {memos.length === 0 ? 'メモはありません' : '該当するメモはありません'}
+          </p>
+        )}
       </div>
     </aside>
   )

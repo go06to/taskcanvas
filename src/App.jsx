@@ -83,7 +83,6 @@ export default function App() {
   // クラウド同期の状態表示。
   const [cloudStatus, setCloudStatus] = useState(localOnly ? 'off' : 'connecting')
   const [authError, setAuthError] = useState('')
-  const fileInputRef = useRef(null)
   // クラウドと最後に同期した内容（送受信のループ防止用）。
   const lastSyncRef = useRef(
     JSON.stringify({ tasks: [], memos: [], templates: [], knowledge: [] }),
@@ -424,7 +423,7 @@ export default function App() {
   }
 
   // --- メモ（フリー入力 → ワンクリックでタスク化）------------------------
-  const addMemo = (text) => {
+  const addMemo = (text, status = 'note') => {
     const t = text.trim()
     if (!t) return
     // ボードに書いた順で上から下へ並ぶよう末尾に追加。
@@ -433,7 +432,9 @@ export default function App() {
       {
         id: newId(),
         text: t,
+        status,
         comment: '',
+        miniTasks: [],
         createdAt: nowISO(),
         done: false,
         archived: false,
@@ -456,6 +457,68 @@ export default function App() {
     setMemos((prev) =>
       prev.map((m) =>
         m.id === id ? { ...m, comment, commentUpdatedAt: comment ? nowISO() : null } : m,
+      ),
+    )
+
+  const setMemoStatus = (id, status) =>
+    setMemos((prev) =>
+      prev.map((memo) => (memo.id === id ? { ...memo, status } : memo)),
+    )
+
+  const addMemoMiniTask = (memoId, title) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: [
+                ...(Array.isArray(memo.miniTasks) ? memo.miniTasks : []),
+                { id: newId(), title, done: false, createdAt: nowISO() },
+              ],
+            }
+          : memo,
+      ),
+    )
+
+  const toggleMemoMiniTask = (memoId, miniTaskId) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: (memo.miniTasks || []).map((task) =>
+                task.id === miniTaskId ? { ...task, done: !task.done } : task,
+              ),
+            }
+          : memo,
+      ),
+    )
+
+  const editMemoMiniTask = (memoId, miniTaskId, title) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: (memo.miniTasks || []).map((task) =>
+                task.id === miniTaskId ? { ...task, title } : task,
+              ),
+            }
+          : memo,
+      ),
+    )
+
+  const deleteMemoMiniTask = (memoId, miniTaskId) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: (memo.miniTasks || []).filter(
+                (task) => task.id !== miniTaskId,
+              ),
+            }
+          : memo,
       ),
     )
 
@@ -483,7 +546,11 @@ export default function App() {
         done: false,
         archived: false,
         completedAt: null,
-        subtasks: [],
+        subtasks: (m.miniTasks || []).map((task) => ({
+          ...task,
+          comment: '',
+          commentUpdatedAt: null,
+        })),
       },
       ...prev,
     ])
@@ -578,57 +645,6 @@ export default function App() {
     setKnowledge((prev) => prev.filter((item) => item.id !== id))
   }
 
-  // --- ファイル書き出し / 読み込み ---------------------------------------
-  const exportFile = () => {
-    const blob = new Blob([JSON.stringify({ tasks, memos, templates, knowledge }, null, 2)], {
-      type: 'application/json',
-    })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    const stamp = new Date().toISOString().slice(0, 10)
-    a.href = url
-    a.download = `tasks-${stamp}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  const importFile = (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      try {
-        const data = JSON.parse(reader.result)
-        // 旧形式（配列）と新形式（{tasks, memos}）の両方に対応。
-        const nextTasks = Array.isArray(data) ? data : data.tasks
-        const nextMemos = Array.isArray(data) ? [] : data.memos ?? []
-        const nextTemplates = Array.isArray(data) ? [] : data.templates ?? []
-        const nextKnowledge = Array.isArray(data) ? [] : data.knowledge ?? []
-        if (!Array.isArray(nextTasks)) throw new Error('形式が違います')
-        if (!Array.isArray(nextMemos)) throw new Error('形式が違います')
-        if (!Array.isArray(nextTemplates)) throw new Error('形式が違います')
-        if (!Array.isArray(nextKnowledge)) throw new Error('形式が違います')
-        if (
-          (tasks.length > 0 ||
-            memos.length > 0 ||
-            templates.length > 0 ||
-            knowledge.length > 0) &&
-          !confirm('現在のタスク・メモ・ナレッジを読み込んだ内容で置き換えます。よろしいですか？')
-        ) {
-          return
-        }
-        setTasks(nextTasks)
-        setMemos(nextMemos)
-        setTemplates(nextTemplates)
-        setKnowledge(nextKnowledge)
-      } catch {
-        alert('読み込みに失敗しました。正しいJSONファイルを選んでください。')
-      }
-    }
-    reader.readAsText(file)
-    e.target.value = '' // 同じファイルを再選択できるようにリセット
-  }
-
   // --- 検索 ---------------------------------------------------------------
   const q = query.trim().toLowerCase()
   const stripHtml = (html) => (html || '').replace(/<[^>]*>/g, ' ')
@@ -682,6 +698,11 @@ export default function App() {
     onToggleDone: toggleMemoDone,
     onEdit: editMemo,
     onEditComment: editMemoComment,
+    onSetStatus: setMemoStatus,
+    onAddMiniTask: addMemoMiniTask,
+    onToggleMiniTask: toggleMemoMiniTask,
+    onEditMiniTask: editMemoMiniTask,
+    onDeleteMiniTask: deleteMemoMiniTask,
     onReorder: reorderMemo,
     onPromote: promoteMemo,
     onArchive: archiveMemo,
@@ -895,20 +916,6 @@ export default function App() {
               🔔 {dueCount}件
             </div>
           )}
-          <button className="ghost io-export" onClick={exportFile}>
-            ⬇ 書き出し
-          </button>
-          <button className="ghost io-import" onClick={() => fileInputRef.current?.click()}>
-            ⬆ 読み込み
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            onChange={importFile}
-            hidden
-          />
-
           {user && (
             <div className="account">
               {user.photoURL ? (
@@ -923,9 +930,6 @@ export default function App() {
                   {(user.email || '?')[0].toUpperCase()}
                 </span>
               )}
-              <span className="account-email" title={user.email}>
-                {user.email}
-              </span>
               <button className="ghost" onClick={signOutNow} title="サインアウト">
                 ログアウト
               </button>
