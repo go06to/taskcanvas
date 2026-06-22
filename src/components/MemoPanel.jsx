@@ -3,19 +3,26 @@ import { linkify } from '../linkify'
 import { MEMO_TERMS } from '../constants'
 
 const fmtDate = (iso) => {
+  if (!iso) return ''
+  const datePart = String(iso).slice(0, 10)
+  if (/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return datePart.replaceAll('-', '/')
   const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(
     d.getDate(),
   ).padStart(2, '0')}`
 }
 
-const fmtDateTime = (iso) => {
-  if (!iso) return ''
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${fmtDate(iso)} ${String(d.getHours()).padStart(2, '0')}:${String(
-    d.getMinutes(),
-  ).padStart(2, '0')}`
+const itemAlarm = (item) => {
+  const value = item?.alarmAt || item?.notifyDate
+  return value ? String(value).slice(0, 10) : ''
+}
+
+const isAlarmDue = (item) => {
+  const value = itemAlarm(item)
+  if (!value || item?.done) return false
+  const time = new Date(value).getTime()
+  return !Number.isNaN(time) && time <= Date.now()
 }
 
 // 装飾ボタンの定義。マーカーだけ背景色＋文字色をまとめて適用する。
@@ -88,8 +95,9 @@ function applyFormat(key) {
   }
 }
 
-function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
+function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) {
   const [editing, setEditing] = useState(false)
+  const [openAlarm, setOpenAlarm] = useState(false)
   const [draft, setDraft] = useState(task.title)
 
   useEffect(() => {
@@ -104,7 +112,11 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
   }
 
   return (
-    <div className={`memo-mini-task ${task.done ? 'is-done' : ''}`}>
+    <div
+      className={`memo-mini-task ${task.done ? 'is-done' : ''} ${
+        isAlarmDue(task) ? 'has-alarm-due' : ''
+      }`}
+    >
       <input
         type="checkbox"
         checked={task.done}
@@ -135,13 +147,23 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
           {linkify(task.title)}
         </span>
       )}
-      {fmtDateTime(task.createdAt) && (
+      <button
+        type="button"
+        className={`memo-mini-alarm ${itemAlarm(task) ? 'is-set' : ''} ${
+          isAlarmDue(task) ? 'is-due' : ''
+        }`}
+        title={itemAlarm(task) ? `アラーム ${fmtDate(itemAlarm(task))}` : 'アラームを設定'}
+        onClick={() => setOpenAlarm((value) => !value)}
+      >
+        ⏰
+      </button>
+      {fmtDate(task.createdAt) && (
         <time
           className="memo-mini-created-at"
           dateTime={task.createdAt}
           title="サブタスク登録日時"
         >
-          {fmtDateTime(task.createdAt)}
+          {fmtDate(task.createdAt)}
         </time>
       )}
       <button
@@ -152,6 +174,21 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onDelete }) {
       >
         ×
       </button>
+      {openAlarm && (
+        <div className="memo-mini-alarm-editor">
+          <input
+            type="date"
+            value={itemAlarm(task)}
+            onChange={(e) => onSetAlarm(memoId, task.id, e.target.value || null)}
+            aria-label="サブタスクのアラーム日時"
+          />
+          {itemAlarm(task) && (
+            <button type="button" onClick={() => onSetAlarm(memoId, task.id, null)}>
+              解除
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -166,9 +203,11 @@ export function MemoRow({
   onEditComment,
   onSetStatus,
   onSetTerm,
+  onSetAlarm,
   onAddMiniTask,
   onToggleMiniTask,
   onEditMiniTask,
+  onSetMiniTaskAlarm,
   onDeleteMiniTask,
   onReorder,
   onArchive,
@@ -178,6 +217,7 @@ export function MemoRow({
   const [openC, setOpenC] = useState(false)
   const [cDraft, setCDraft] = useState(memo.comment || '')
   const [openMini, setOpenMini] = useState(false)
+  const [openAlarm, setOpenAlarm] = useState(false)
   const [miniDraft, setMiniDraft] = useState('')
   const miniTasks = Array.isArray(memo.miniTasks) ? memo.miniTasks : []
 
@@ -225,7 +265,7 @@ export function MemoRow({
           large ? 'is-large' : 'has-drag'
         } ${openC || memo.comment ? 'has-comment' : ''} ${
           openMini || miniTasks.length > 0 ? 'has-mini' : ''
-        }`}
+        } ${isAlarmDue(memo) ? 'has-alarm-due' : ''}`}
       >
         {!large && (
           <span
@@ -261,13 +301,13 @@ export function MemoRow({
               }
             }}
           />
-          {fmtDateTime(memo.createdAt) && (
+          {fmtDate(memo.createdAt) && (
             <time
               className="memo-created-at"
               dateTime={memo.createdAt}
               title="登録日時"
             >
-              {fmtDateTime(memo.createdAt)}
+              {fmtDate(memo.createdAt)}
             </time>
           )}
         </div>
@@ -312,6 +352,7 @@ export function MemoRow({
                 task={task}
                 onToggle={onToggleMiniTask}
                 onEdit={onEditMiniTask}
+                onSetAlarm={onSetMiniTaskAlarm}
                 onDelete={onDeleteMiniTask}
               />
             ))}
@@ -374,6 +415,32 @@ export function MemoRow({
               </option>
             ))}
           </select>
+          <button
+            type="button"
+            className={`memo-alarm ${itemAlarm(memo) ? 'is-set' : ''} ${
+              isAlarmDue(memo) ? 'is-due' : ''
+            }`}
+            title={itemAlarm(memo) ? `アラーム ${fmtDate(itemAlarm(memo))}` : 'アラームを設定'}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => setOpenAlarm((value) => !value)}
+          >
+            {itemAlarm(memo) ? `⏰ ${fmtDate(itemAlarm(memo))}` : '⏰ アラーム'}
+          </button>
+          {openAlarm && (
+            <div className="memo-alarm-editor">
+              <input
+                type="date"
+                value={itemAlarm(memo)}
+                onChange={(e) => onSetAlarm(memo.id, e.target.value || null)}
+                aria-label="MEMOのアラーム日時"
+              />
+              {itemAlarm(memo) && (
+                <button type="button" onClick={() => onSetAlarm(memo.id, null)}>
+                  解除
+                </button>
+              )}
+            </div>
+          )}
           {!large && (
             <button
               className="memo-expand"
@@ -507,9 +574,11 @@ export default function MemoPanel({
   onEditComment,
   onSetStatus,
   onSetTerm,
+  onSetAlarm,
   onAddMiniTask,
   onToggleMiniTask,
   onEditMiniTask,
+  onSetMiniTaskAlarm,
   onDeleteMiniTask,
   onReorder,
   onArchive,
@@ -582,6 +651,18 @@ export default function MemoPanel({
             </option>
           ))}
         </select>
+        <button
+          type="button"
+          className="memo-show-all"
+          disabled={statusFilter === 'all' && termFilter === 'all'}
+          title="分類とステータスの絞り込みをすべて解除"
+          onClick={() => {
+            setStatusFilter('all')
+            setTermFilter('all')
+          }}
+        >
+          全表示
+        </button>
         <button
           type="button"
           className="memo-create-entry"
@@ -677,9 +758,11 @@ export default function MemoPanel({
             onEditComment={onEditComment}
             onSetStatus={onSetStatus}
             onSetTerm={onSetTerm}
+            onSetAlarm={onSetAlarm}
             onAddMiniTask={onAddMiniTask}
             onToggleMiniTask={onToggleMiniTask}
             onEditMiniTask={onEditMiniTask}
+            onSetMiniTaskAlarm={onSetMiniTaskAlarm}
             onDeleteMiniTask={onDeleteMiniTask}
             onReorder={onReorder}
             onArchive={onArchive}

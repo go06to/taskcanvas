@@ -20,6 +20,17 @@ const newId = () =>
 // 今日の日付を ISO 文字列で返す。
 const nowISO = () => new Date().toISOString()
 
+const alarmValue = (item) => {
+  const value = item?.alarmAt || item?.notifyDate
+  return value ? String(value).slice(0, 10) : null
+}
+
+const alarmTime = (value) => {
+  if (!value) return null
+  const time = new Date(`${String(value).slice(0, 10)}T00:00:00`).getTime()
+  return Number.isNaN(time) ? null : time
+}
+
 const escapeHtml = (value = '') =>
   String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -49,6 +60,7 @@ function migrateActiveTasksToMemos(data) {
       term: ['short', 'mid', 'long'].includes(task.term) ? task.term : 'memo',
       status: 'action',
       comment: task.comment || '',
+      alarmAt: alarmValue(task),
       miniTasks: (Array.isArray(task.subtasks) ? task.subtasks : []).map((subtask) => ({
         ...subtask,
         createdAt: subtask.createdAt || task.createdAt || nowISO(),
@@ -120,6 +132,10 @@ export default function App() {
   // クラウド同期の状態表示。
   const [cloudStatus, setCloudStatus] = useState(localOnly ? 'off' : 'connecting')
   const [authError, setAuthError] = useState('')
+  const [alarmClock, setAlarmClock] = useState(() => Date.now())
+  const [notificationPermission, setNotificationPermission] = useState(() =>
+    typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
+  )
   // クラウドと最後に同期した内容（送受信のループ防止用）。
   const lastSyncRef = useRef(
     JSON.stringify({ tasks: [], memos: [], templates: [], knowledge: [] }),
@@ -132,6 +148,11 @@ export default function App() {
     setTasks(data.tasks)
     setMemos(data.memos)
   }, [tasks, memos])
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setAlarmClock(Date.now()), 30000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   const changeActiveTerm = (key) => {
     setActiveTerm(key)
@@ -456,6 +477,7 @@ export default function App() {
         term,
         comment: '',
         miniTasks: [],
+        alarmAt: null,
         createdAt: nowISO(),
         done: false,
         archived: false,
@@ -492,6 +514,13 @@ export default function App() {
       prev.map((memo) => (memo.id === id ? { ...memo, term } : memo)),
     )
 
+  const setMemoAlarm = (id, alarmAt) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === id ? { ...memo, alarmAt, notifyDate: null } : memo,
+      ),
+    )
+
   const addMemoMiniTask = (memoId, title) =>
     setMemos((prev) =>
       prev.map((memo) =>
@@ -500,7 +529,13 @@ export default function App() {
               ...memo,
               miniTasks: [
                 ...(Array.isArray(memo.miniTasks) ? memo.miniTasks : []),
-                { id: newId(), title, done: false, createdAt: nowISO() },
+                {
+                  id: newId(),
+                  title,
+                  done: false,
+                  createdAt: nowISO(),
+                  alarmAt: null,
+                },
               ],
             }
           : memo,
@@ -529,6 +564,22 @@ export default function App() {
               ...memo,
               miniTasks: (memo.miniTasks || []).map((task) =>
                 task.id === miniTaskId ? { ...task, title } : task,
+              ),
+            }
+          : memo,
+      ),
+    )
+
+  const setMemoMiniTaskAlarm = (memoId, miniTaskId, alarmAt) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: (memo.miniTasks || []).map((task) =>
+                task.id === miniTaskId
+                  ? { ...task, alarmAt, notifyDate: null }
+                  : task,
               ),
             }
           : memo,
@@ -655,10 +706,54 @@ export default function App() {
   const archivedCount =
     tasks.filter((t) => t.archived).length +
     memos.filter((m) => m.archived).length
-  // お知らせ日付が来た（未完了の）タスク数 ＝ アラート対象（検索に左右されない）。
-  const dueCount = tasks.filter(
+  const dueTaskCount = tasks.filter(
     (t) => !t.archived && !t.done && isDue(t.notifyDate),
   ).length
+  const alarmItems = memos
+    .filter((memo) => !memo.archived && !memo.done)
+    .flatMap((memo) => [
+      ...(alarmValue(memo)
+        ? [{ id: memo.id, alarmAt: alarmValue(memo), text: stripHtml(memo.text) }]
+        : []),
+      ...(memo.miniTasks || [])
+        .filter((task) => !task.done && alarmValue(task))
+        .map((task) => ({
+          id: `${memo.id}:${task.id}`,
+          alarmAt: alarmValue(task),
+          text: task.title,
+        })),
+    ])
+  const dueAlarmItems = alarmItems.filter((item) => {
+    const time = alarmTime(item.alarmAt)
+    return time !== null && time <= alarmClock
+  })
+  const dueCount = dueTaskCount + dueAlarmItems.length
+  const dueAlarmSignature = dueAlarmItems
+    .map((item) => `${item.id}:${item.alarmAt}`)
+    .join('|')
+
+  useEffect(() => {
+    if (notificationPermission !== 'granted' || !dueAlarmSignature) return
+    dueAlarmItems.forEach((item) => {
+      const key = `taskcanvas-alarm:${item.id}:${item.alarmAt}`
+      if (localStorage.getItem(key)) return
+      try {
+        new Notification('TaskCanvas アラーム', {
+          body: item.text || '設定した時間になりました',
+          icon: '/icon-192.png',
+        })
+        localStorage.setItem(key, '1')
+      } catch (error) {
+        console.warn('ブラウザ通知を表示できませんでした:', error)
+      }
+    })
+  }, [dueAlarmSignature, notificationPermission])
+
+  const enableBrowserNotifications = async () => {
+    if (typeof Notification === 'undefined') return
+    const permission = await Notification.requestPermission()
+    setNotificationPermission(permission)
+  }
 
   // タスクカード／メモ行に渡すハンドラ一式（通常表示と拡大表示で共用）。
   const taskProps = {
@@ -686,9 +781,11 @@ export default function App() {
     onEditComment: editMemoComment,
     onSetStatus: setMemoStatus,
     onSetTerm: setMemoTerm,
+    onSetAlarm: setMemoAlarm,
     onAddMiniTask: addMemoMiniTask,
     onToggleMiniTask: toggleMemoMiniTask,
     onEditMiniTask: editMemoMiniTask,
+    onSetMiniTaskAlarm: setMemoMiniTaskAlarm,
     onDeleteMiniTask: deleteMemoMiniTask,
     onReorder: reorderMemo,
     onArchive: archiveMemo,
@@ -818,12 +915,22 @@ export default function App() {
                   : '接続中'}
             </span>
           )}
+          {alarmItems.length > 0 && notificationPermission === 'default' && (
+            <button
+              type="button"
+              className="ghost alarm-permission"
+              onClick={enableBrowserNotifications}
+              title="アラームのブラウザ通知を許可"
+            >
+              通知を許可
+            </button>
+          )}
           {dueCount > 0 && (
             <div
               className="due-indicator"
-              title="お知らせ日付が来たタスクがあります"
+              title="設定時刻になったアラームがあります"
             >
-              通知 {dueCount}件
+              アラーム {dueCount}件
             </div>
           )}
           {user && (
