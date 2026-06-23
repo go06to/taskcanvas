@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { TERMS, STORAGE_KEY } from './constants'
+import { TERMS, MEMO_TERMS, STORAGE_KEY } from './constants'
 import { isDue } from './dateUtils'
 import { db, auth, firebaseEnabled, googleProvider, USERS } from './firebase'
 import Archive from './components/Archive'
-import MemoPanel, { MemoRow } from './components/MemoPanel'
+import MemoPanel, { MEMO_STATUSES, MemoRow } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
 import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
 
@@ -183,6 +183,10 @@ export default function App() {
   const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
   const [query, setQuery] = useState('') // 検索キーワード
   const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge', id}
+  const [quickAddText, setQuickAddText] = useState('')
+  const [dashboardStatusFilter, setDashboardStatusFilter] = useState('all')
+  const [dashboardTermFilter, setDashboardTermFilter] = useState('all')
+  const [detailCreateRequest, setDetailCreateRequest] = useState(0)
   const [sortKey, setSortKey] = useState(
     () => localStorage.getItem('tb-sort') || 'manual',
   )
@@ -973,6 +977,43 @@ export default function App() {
   const dueAlarmSignature = dueAlarmItems
     .map((item) => `${item.id}:${item.alarmAt}`)
     .join('|')
+  const dashboardTodayItems = dueAlarmItems
+    .slice()
+    .sort((a, b) => String(a.alarmAt).localeCompare(String(b.alarmAt)))
+    .slice(0, 4)
+  const protectedMemoCount = activeMemos.filter((memo) => memo.passwordHash).length
+  const openMemoCount = activeMemos.filter((memo) => !memo.done).length
+  const dashboardCounts = [
+    { label: 'Open', value: openMemoCount },
+    { label: 'Today', value: dueCount, alert: dueCount > 0 },
+    { label: 'PW', value: protectedMemoCount },
+    { label: 'Archive', value: archivedCount },
+  ]
+  const dashboardTermCounts = MEMO_TERMS.filter((term) => term.key !== 'memo').map(
+    (term) => ({
+      ...term,
+      count: activeMemos.filter((memo) => memo.term === term.key).length,
+    }),
+  )
+
+  const submitQuickAdd = async (protectedMode = false) => {
+    const title = quickAddText.trim()
+    if (!title) return
+    const html = escapeHtml(title)
+    const added = protectedMode
+      ? await addProtectedMemo(html, 'action', activeTerm)
+      : addMemo(html, 'action', activeTerm) !== null
+    if (!added) return
+    setQuickAddText('')
+    setView('board')
+    setSidePane('memo')
+  }
+
+  const openDetailCreate = () => {
+    setView('board')
+    setSidePane('memo')
+    setDetailCreateRequest((value) => value + 1)
+  }
 
   useEffect(() => {
     if (notificationPermission !== 'granted' || !dueAlarmSignature) return
@@ -1048,6 +1089,16 @@ export default function App() {
   }
   const openDetail = (type, id) => setDetail({ type, id })
   const closeDetail = () => setDetail(null)
+  const openDashboardAlarm = async (item) => {
+    const memoId = String(item.id).split(':')[0]
+    const memo = memos.find((m) => m.id === memoId)
+    if (memo) {
+      if (!canReadMemo(memo) && !(await unlockMemo(memoId))) return
+      setView('board')
+      setSidePane('memo')
+      setDetail({ type: 'memo', id: memoId })
+    }
+  }
   const detailTask =
     detail?.type === 'task' ? tasks.find((t) => t.id === detail.id) : null
   const detailMemo =
@@ -1144,6 +1195,176 @@ export default function App() {
           )}
         </div>
 
+        <div className="dashboard-stack" aria-label="Dashboard">
+          <section className="dashboard-block dashboard-quick">
+            <div className="dashboard-block-head">
+              <h2>Quick Add</h2>
+            </div>
+            <form
+              className="dash-quick-form"
+              onSubmit={(event) => {
+                event.preventDefault()
+                submitQuickAdd(false)
+              }}
+            >
+              <input
+                value={quickAddText}
+                placeholder="Taskを追加"
+                onChange={(event) => setQuickAddText(event.target.value)}
+              />
+              <div className="dash-quick-controls">
+                <select
+                  value={activeTerm}
+                  onChange={(event) => changeActiveTerm(event.target.value)}
+                  aria-label="追加先"
+                >
+                  {TERMS.map((term) => (
+                    <option key={term.key} value={term.key}>
+                      {term.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="dash-pw-add"
+                  disabled={!quickAddText.trim()}
+                  title="PW付きで追加"
+                  onClick={() => submitQuickAdd(true)}
+                >
+                  PW
+                </button>
+                <button
+                  type="submit"
+                  className="dash-add"
+                  disabled={!quickAddText.trim()}
+                  title="追加"
+                >
+                  +
+                </button>
+              </div>
+            </form>
+            <button
+              type="button"
+              className="dash-detail-create"
+              onClick={openDetailCreate}
+              title="本文や分類を選んで作成"
+            >
+              ＋ 詳細作成
+            </button>
+          </section>
+
+          <section className="dashboard-block dashboard-today">
+            <div className="dashboard-block-head">
+              <h2>Today</h2>
+              <span>{dashboardTodayItems.length}</span>
+            </div>
+            <div className="dash-today-list">
+              {dashboardTodayItems.length === 0 ? (
+                <p className="dash-empty">No alarms</p>
+              ) : (
+                dashboardTodayItems.map((item) => (
+                  <button
+                    key={`${item.id}:${item.alarmAt}`}
+                    type="button"
+                    className="dash-today-item"
+                    onClick={() => openDashboardAlarm(item)}
+                  >
+                    <span className="dash-date">{String(item.alarmAt).slice(5)}</span>
+                    <span className="dash-title">{item.text || 'Task'}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          </section>
+
+          <section className="dashboard-block dashboard-counts">
+            <div className="dashboard-block-head">
+              <h2>Counts</h2>
+            </div>
+            <div className="dash-count-grid">
+              {dashboardCounts.map((item) => (
+                <button
+                  key={item.label}
+                  type="button"
+                  className={`dash-count ${item.alert ? 'is-alert' : ''}`}
+                  onClick={() => {
+                    if (item.label === 'Archive') setView('archive')
+                    else {
+                      setView('board')
+                      setSidePane('memo')
+                    }
+                  }}
+                >
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
+                </button>
+              ))}
+            </div>
+            <div className="dash-filter-row">
+              <select
+                className={`dash-status-filter ${
+                  dashboardStatusFilter === 'all' ? '' : `is-${dashboardStatusFilter}`
+                }`}
+                value={dashboardStatusFilter}
+                onChange={(event) => {
+                  setDashboardStatusFilter(event.target.value)
+                  setView('board')
+                  setSidePane('memo')
+                }}
+                aria-label="タスクをステータスで絞り込む"
+                title="ステータスで絞り込む"
+              >
+                <option value="all">ALL</option>
+                {MEMO_STATUSES.map((status) => (
+                  <option
+                    key={status.key}
+                    value={status.key}
+                    className={`is-${status.key}`}
+                    style={{ color: status.color, background: status.soft }}
+                  >
+                    {status.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="dash-reset"
+                disabled={dashboardStatusFilter === 'all' && dashboardTermFilter === 'all'}
+                title="分類とステータスの絞り込みをすべて解除"
+                onClick={() => {
+                  setDashboardStatusFilter('all')
+                  setDashboardTermFilter('all')
+                  setView('board')
+                  setSidePane('memo')
+                }}
+              >
+                全表示
+              </button>
+            </div>
+            <div className="dash-term-list">
+              {dashboardTermCounts.map((term) => (
+                <button
+                  key={term.key}
+                  type="button"
+                  className={`dash-term ${dashboardTermFilter === term.key ? 'is-active' : ''}`}
+                  style={{ '--term': term.color, '--term-soft': term.soft }}
+                  onClick={() => {
+                    setDashboardTermFilter((current) =>
+                      current === term.key ? 'all' : term.key,
+                    )
+                    changeActiveTerm(term.key)
+                    setView('board')
+                    setSidePane('memo')
+                  }}
+                >
+                  <span>{term.label}</span>
+                  <strong>{term.count}</strong>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+
         <div className="actions">
           {cloudStatus !== 'off' && (
             <span
@@ -1217,6 +1438,11 @@ export default function App() {
               memos={activeMemos}
               onAdd={addMemo}
               onOpenDetail={(id) => openDetail('memo', id)}
+              statusFilter={dashboardStatusFilter}
+              termFilter={dashboardTermFilter}
+              onStatusFilterChange={setDashboardStatusFilter}
+              onTermFilterChange={setDashboardTermFilter}
+              createRequest={detailCreateRequest}
               {...memoProps}
             />
           ))}

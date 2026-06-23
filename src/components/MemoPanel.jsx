@@ -25,7 +25,7 @@ const isAlarmDue = (item) => {
   return !Number.isNaN(time) && time <= Date.now()
 }
 
-const MEMO_STATUSES = [
+export const MEMO_STATUSES = [
   { key: 'action', label: 'ACTION', description: '自分が対応する', color: '#c9344f', soft: '#fdecef' },
   { key: 'schedule', label: 'SCHEDULE', description: '予定・日時が決まっている', color: '#2563b8', soft: '#eaf3ff' },
   { key: 'waiting', label: 'WAITING', description: '返答・対応待ち', color: '#a86716', soft: '#fff4df' },
@@ -693,10 +693,13 @@ export default function MemoPanel({
   onSetPassword,
   onClearPassword,
   onOpenDetail,
+  statusFilter = 'all',
+  termFilter = 'all',
+  onStatusFilterChange,
+  onTermFilterChange,
+  createRequest = 0,
 }) {
   const newRef = useRef(null)
-  const [statusFilter, setStatusFilter] = useState('all')
-  const [termFilter, setTermFilter] = useState('all')
   const [composerOpen, setComposerOpen] = useState(false)
   const [selectedTerm, setSelectedTerm] = useState(null)
   const [termError, setTermError] = useState(false)
@@ -712,6 +715,21 @@ export default function MemoPanel({
       memos.filter((memo) => memoTerm(memo) === term.key).length,
     ]),
   )
+  const openComposer = () => {
+    if (composerOpen) {
+      newRef.current?.focus()
+      return
+    }
+    setComposerOpen(true)
+    setSelectedTerm(null)
+    setTermError(false)
+    requestAnimationFrame(() => newRef.current?.focus())
+  }
+
+  useEffect(() => {
+    if (!createRequest) return
+    openComposer()
+  }, [createRequest])
 
   return (
     <aside className="memo-panel">
@@ -719,75 +737,70 @@ export default function MemoPanel({
         <h2>
           Task
         </h2>
-        <div className="memo-head-counts">
-          <span className="memo-count">残り {remaining}</span>
-          <div className="memo-head-term-counts" aria-label="分類別の件数">
-            {MEMO_TERMS.filter((term) => term.key !== 'memo').map((term) => (
-              <button
-                key={term.key}
-                type="button"
-                className={`memo-head-term-count ${termFilter === term.key ? 'is-active' : ''}`}
-                style={{ '--term': term.color, '--term-soft': term.soft }}
-                title={`${term.label} ${termCounts[term.key]}件（クリックで絞り込み${termFilter === term.key ? '解除' : ''}）`}
-                aria-pressed={termFilter === term.key}
-                onClick={() =>
-                  setTermFilter((current) => (current === term.key ? 'all' : term.key))
-                }
-              >
-                <span className="memo-head-term-dot" aria-hidden="true" />
-                <span>{term.label}</span>
-                <strong>{termCounts[term.key]}</strong>
-              </button>
-            ))}
+        <div className="memo-head-controls">
+          <div className="memo-head-counts">
+            <div className="memo-head-term-counts" aria-label="分類別の件数">
+              {MEMO_TERMS.filter((term) => term.key !== 'memo').map((term) => (
+                <button
+                  key={term.key}
+                  type="button"
+                  className={`memo-head-term-count ${termFilter === term.key ? 'is-active' : ''}`}
+                  style={{ '--term': term.color, '--term-soft': term.soft }}
+                  title={`${term.label} ${termCounts[term.key]}件（クリックで絞り込み${termFilter === term.key ? '解除' : ''}）`}
+                  aria-pressed={termFilter === term.key}
+                  onClick={() =>
+                    onTermFilterChange?.(termFilter === term.key ? 'all' : term.key)
+                  }
+                >
+                  <span className="memo-head-term-dot" aria-hidden="true" />
+                  <span>{term.label}</span>
+                  <strong>{termCounts[term.key]}</strong>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="memo-head-actions">
+            <select
+              className={`memo-status-filter ${statusFilter === 'all' ? '' : `is-${statusFilter}`}`}
+              value={statusFilter}
+              onChange={(e) => onStatusFilterChange?.(e.target.value)}
+              aria-label="メモをステータスで絞り込む"
+              title="ステータスで絞り込む"
+            >
+              <option value="all">ALL</option>
+              {MEMO_STATUSES.map((status) => (
+                <option
+                  key={status.key}
+                  value={status.key}
+                  className={`is-${status.key}`}
+                  style={{ color: status.color, background: status.soft }}
+                >
+                  {status.label}
+                </option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="memo-show-all"
+              disabled={statusFilter === 'all' && termFilter === 'all'}
+              title="分類とステータスの絞り込みをすべて解除"
+              onClick={() => {
+                onStatusFilterChange?.('all')
+                onTermFilterChange?.('all')
+              }}
+            >
+              全表示
+            </button>
+            <button
+              type="button"
+              className="memo-create-entry"
+              onClick={openComposer}
+            >
+              ＋ 作成
+            </button>
+            <span className="memo-count">残り {remaining}</span>
           </div>
         </div>
-        <select
-          className={`memo-status-filter ${statusFilter === 'all' ? '' : `is-${statusFilter}`}`}
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          aria-label="メモをステータスで絞り込む"
-          title="ステータスで絞り込む"
-        >
-          <option value="all">ALL</option>
-          {MEMO_STATUSES.map((status) => (
-            <option
-              key={status.key}
-              value={status.key}
-              className={`is-${status.key}`}
-              style={{ color: status.color, background: status.soft }}
-            >
-              {status.label}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          className="memo-show-all"
-          disabled={statusFilter === 'all' && termFilter === 'all'}
-          title="分類とステータスの絞り込みをすべて解除"
-          onClick={() => {
-            setStatusFilter('all')
-            setTermFilter('all')
-          }}
-        >
-          全表示
-        </button>
-        <button
-          type="button"
-          className="memo-create-entry"
-          onClick={() => {
-            if (composerOpen) {
-              newRef.current?.focus()
-              return
-            }
-            setComposerOpen(true)
-            setSelectedTerm(null)
-            setTermError(false)
-            requestAnimationFrame(() => newRef.current?.focus())
-          }}
-        >
-          ＋ 作成
-        </button>
       </div>
 
       {composerOpen && (
