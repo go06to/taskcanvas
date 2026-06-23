@@ -854,7 +854,7 @@ export default function App() {
               setSidePane('memo')
             }}
           >
-            MEMO
+            Task
           </button>
           <button
             className={view === 'board' && sidePane === 'free' ? 'active' : ''}

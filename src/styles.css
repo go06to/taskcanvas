@@ -1697,20 +1697,40 @@ button.ghost.on {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px 12px;
+  gap: 10px;
+  padding: 20px 20px 14px;
   border-bottom: 1px solid var(--line);
 }
 
 .knowledge-head h2 {
+  position: relative;
   margin: 0;
-  font-size: 21px;
+  padding-left: 13px;
+  font-size: 24px;
+  line-height: 1.15;
   font-weight: 800;
+  letter-spacing: -0.025em;
+}
+
+.knowledge-head h2::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  width: 4px;
+  height: 23px;
+  border-radius: 999px;
+  background: var(--accent);
 }
 
 .knowledge-count {
-  display: inline-block;
-  margin-top: 3px;
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--surface-soft);
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
@@ -3953,7 +3973,7 @@ button.ghost.on {
   }
 
   .view-switch button:first-child::before {
-    content: "M";
+    content: "T";
     font-size: 13px;
     font-weight: 800;
   }

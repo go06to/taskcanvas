@@ -227,10 +227,8 @@ export default function KnowledgePanel({
   return (
     <aside className="knowledge-panel" style={style} aria-label="Freespace">
       <div className="knowledge-head">
-        <div>
-          <h2>Freespace</h2>
-          <span className="knowledge-count">{items.length} notes</span>
-        </div>
+        <h2>Freespace</h2>
+        <span className="knowledge-count">{items.length} notes</span>
       </div>
 
       <div className="knowledge-tools">
