@@ -16,6 +16,8 @@ export default function Archive({
   onDelete,
   onRestoreMemo,
   onDeleteMemo,
+  isMemoUnlocked = () => true,
+  onUnlockMemo,
 }) {
   const total = tasks.length + memos.length
 
@@ -71,6 +73,7 @@ export default function Archive({
           <ul className="archive-list">
             {memos.map((memo) => {
               const term = MEMO_TERM_MAP[memo.term] || MEMO_TERM_MAP.memo
+              const locked = Boolean(memo.passwordHash) && !isMemoUnlocked(memo.id)
               return (
                 <li key={memo.id} className="archive-item">
                   <span
@@ -79,19 +82,35 @@ export default function Archive({
                   >
                     {term.label}
                   </span>
-                  <span
-                    className="archive-title"
-                    dangerouslySetInnerHTML={{ __html: memo.text }}
-                  />
+                  {locked ? (
+                    <span className="archive-title archive-secret">
+                      PWが必要なタスク
+                    </span>
+                  ) : (
+                    <span
+                      className="archive-title"
+                      dangerouslySetInnerHTML={{ __html: memo.text }}
+                    />
+                  )}
                   <span className="archive-date">
                     作成 {fmtDate(memo.createdAt)} ／ 完了 {fmtDate(memo.archivedAt)}
                   </span>
                   <div className="archive-actions">
-                    <button className="mini" onClick={() => onRestoreMemo(memo.id)}>
+                    {locked && (
+                      <button className="mini" onClick={() => onUnlockMemo?.(memo.id)}>
+                        PW
+                      </button>
+                    )}
+                    <button
+                      className="mini"
+                      disabled={locked}
+                      onClick={() => onRestoreMemo(memo.id)}
+                    >
                       メモへ戻す
                     </button>
                     <button
                       className="mini danger"
+                      disabled={locked}
                       onClick={() => onDeleteMemo(memo.id)}
                     >
                       ×

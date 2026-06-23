@@ -216,6 +216,10 @@ body {
   letter-spacing: 2px;
 }
 
+.lock-box input + input {
+  margin-top: 8px;
+}
+
 .lock-box input:focus {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
@@ -1224,6 +1228,90 @@ button.ghost.on {
 .memo-row.has-alarm-due {
   border-color: color-mix(in srgb, var(--alert) 55%, var(--line));
   box-shadow: inset 3px 0 0 var(--alert), var(--shadow-sm);
+}
+
+.memo-row.is-protected {
+  border-color: color-mix(in srgb, var(--accent) 38%, var(--line));
+}
+
+.memo-row.is-secret {
+  background: color-mix(in srgb, var(--surface-soft) 82%, white);
+  border-style: dashed;
+}
+
+.memo-row.is-secret .memo-content-line {
+  cursor: default;
+}
+
+.memo-secret-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.memo-secret-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 22px;
+  border: 1px solid color-mix(in srgb, var(--accent) 42%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.memo-secret-placeholder button,
+.memo-pw,
+.memo-pw-clear {
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.memo-secret-placeholder button:hover,
+.memo-pw:hover,
+.memo-pw-clear:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  color: var(--accent);
+}
+
+.memo-pw.is-set {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: color-mix(in srgb, var(--accent) 10%, white);
+  color: var(--accent);
+}
+
+.memo-pw-clear {
+  color: var(--alert);
+  border-color: color-mix(in srgb, var(--alert) 30%, var(--line));
+}
+
+.memo-row-actions button:disabled,
+.memo-row-actions select:disabled,
+.archive-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.archive-secret {
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .memo-drag {

@@ -235,6 +235,11 @@ export function MemoRow({
   onReorder,
   onArchive,
   onDelete,
+  isUnlocked = () => true,
+  onUnlock,
+  onLock,
+  onSetPassword,
+  onClearPassword,
 }) {
   const ref = useRef(null)
   const [openC, setOpenC] = useState(false)
@@ -243,16 +248,23 @@ export function MemoRow({
   const [openAlarm, setOpenAlarm] = useState(false)
   const [miniDraft, setMiniDraft] = useState('')
   const miniTasks = Array.isArray(memo.miniTasks) ? memo.miniTasks : []
+  const protectedMemo = Boolean(memo.passwordHash)
+  const locked = protectedMemo && !isUnlocked(memo.id)
 
   // 初期内容と外部変更の反映（編集中＝フォーカス時は触らない）。
   useEffect(() => {
     const el = ref.current
+    if (locked) {
+      if (el) el.innerHTML = ''
+      return
+    }
     if (el && document.activeElement !== el && el.innerHTML !== (memo.text || '')) {
       el.innerHTML = memo.text || ''
     }
-  }, [memo.text])
+  }, [locked, memo.text])
 
   const save = () => {
+    if (locked) return
     const el = ref.current
     if (el && el.innerHTML !== memo.text) onEdit(memo.id, el.innerHTML)
   }
@@ -263,6 +275,7 @@ export function MemoRow({
   }
 
   const addMiniTask = () => {
+    if (locked) return
     const title = miniDraft.trim()
     if (!title) return
     onAddMiniTask(memo.id, title)
@@ -272,9 +285,9 @@ export function MemoRow({
   return (
     <div
       className={`memo-row-wrap ${large ? 'large' : ''}`}
-      onDragOver={large ? undefined : (e) => e.preventDefault()}
+      onDragOver={large || locked ? undefined : (e) => e.preventDefault()}
       onDrop={
-        large
+        large || locked
           ? undefined
           : (e) => {
               e.preventDefault()
@@ -288,9 +301,11 @@ export function MemoRow({
           large ? 'is-large' : 'has-drag'
         } ${openC || memo.comment ? 'has-comment' : ''} ${
           openMini || miniTasks.length > 0 ? 'has-mini' : ''
-        } ${isAlarmDue(memo) ? 'has-alarm-due' : ''}`}
+        } ${isAlarmDue(memo) ? 'has-alarm-due' : ''} ${
+          protectedMemo ? 'is-protected' : ''
+        } ${locked ? 'is-secret' : ''}`}
       >
-        {!large && (
+        {!large && !locked && (
           <span
             className="memo-drag"
             title="ドラッグで並び替え"
@@ -307,9 +322,20 @@ export function MemoRow({
           type="checkbox"
           className="memo-cb"
           checked={memo.done}
+          disabled={locked}
           onChange={() => onToggleDone(memo.id)}
         />
         <div className="memo-content-line">
+          {locked ? (
+            <div className="memo-secret-placeholder">
+              <span className="memo-secret-badge">PW</span>
+              <span>PWが必要なタスク</span>
+              <button type="button" onClick={() => onUnlock?.(memo.id)}>
+                開く
+              </button>
+            </div>
+          ) : (
+            <>
           <div
             ref={ref}
             className="memo-rich"
@@ -345,8 +371,10 @@ export function MemoRow({
               {fmtDate(memo.createdAt)}
             </time>
           )}
+            </>
+          )}
         </div>
-        {openC ? (
+        {!locked && openC ? (
           <textarea
             className="memo-comment-edit"
             value={cDraft}
@@ -362,7 +390,7 @@ export function MemoRow({
               }
             }}
           />
-        ) : memo.comment ? (
+        ) : !locked && memo.comment ? (
           <div
             className="memo-comment"
             title={'\u30af\u30ea\u30c3\u30af\u3067\u7de8\u96c6'}
@@ -378,7 +406,7 @@ export function MemoRow({
             {linkify(memo.comment)}
           </div>
         ) : null}
-        {(openMini || miniTasks.length > 0) && (
+        {!locked && (openMini || miniTasks.length > 0) && (
           <div className="memo-mini-panel">
             {miniTasks.map((task) => (
               <MemoMiniTask
@@ -417,6 +445,7 @@ export function MemoRow({
           <select
             className={`memo-term-select is-${memoTerm(memo)}`}
             value={memoTerm(memo)}
+            disabled={locked}
             onChange={(e) => onSetTerm(memo.id, e.target.value)}
             aria-label="メモの登録先"
             title="登録先を変更"
@@ -435,6 +464,7 @@ export function MemoRow({
           <select
             className={`memo-status is-${memoStatus(memo)}`}
             value={memoStatus(memo)}
+            disabled={locked}
             onChange={(e) => onSetStatus(memo.id, e.target.value)}
             aria-label="メモのステータス"
             title={`${MEMO_STATUSES.find((status) => status.key === memoStatus(memo))?.description}（クリックで変更）`}
@@ -457,11 +487,14 @@ export function MemoRow({
             }`}
             title={itemAlarm(memo) ? `アラーム ${fmtDate(itemAlarm(memo))}` : 'アラームを設定'}
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setOpenAlarm((value) => !value)}
+            disabled={locked}
+            onClick={() => {
+              if (!locked) setOpenAlarm((value) => !value)
+            }}
           >
             {itemAlarm(memo) ? `⏰ ${fmtDate(itemAlarm(memo))}` : '⏰ アラーム'}
           </button>
-          {openAlarm && (
+          {!locked && openAlarm && (
             <div className="memo-alarm-editor">
               <input
                 type="date"
@@ -481,19 +514,46 @@ export function MemoRow({
               className="memo-expand"
               title="拡大表示"
               onMouseDown={(e) => e.preventDefault()}
-              onClick={() => onOpenDetail(memo.id)}
+              onClick={() => (locked ? onUnlock?.(memo.id) : onOpenDetail(memo.id))}
             >
               ⤢
             </button>
           )}
           <button
+            type="button"
+            className={`memo-pw ${protectedMemo ? 'is-set' : ''}`}
+            title={protectedMemo ? (locked ? 'PWを入力して開く' : '内容を隠す') : 'PWを設定'}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => {
+              if (!protectedMemo) onSetPassword?.(memo.id)
+              else if (locked) onUnlock?.(memo.id)
+              else onLock?.(memo.id)
+            }}
+          >
+            {protectedMemo ? (locked ? 'PW' : '隠す') : 'PW'}
+          </button>
+          {protectedMemo && !locked && (
+            <button
+              type="button"
+              className="memo-pw-clear"
+              title="PWを解除"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => onClearPassword?.(memo.id)}
+            >
+              解除
+            </button>
+          )}
+          <button
             className={`memo-cmt ${memo.comment ? 'has' : ''}`}
+            disabled={locked}
             title="コメント"
             aria-label="コメント"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
-              setCDraft(memo.comment || '')
-              setOpenC((v) => !v)
+              if (!locked) {
+                setCDraft(memo.comment || '')
+                setOpenC((v) => !v)
+              }
             }}
           >
             <span className="memo-comment-icon" aria-hidden="true" />
@@ -501,25 +561,34 @@ export function MemoRow({
           <button
             type="button"
             className={`memo-mini-toggle ${miniTasks.length ? 'has' : ''}`}
+            disabled={locked}
             title="サブタスクを追加"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => setOpenMini((value) => !value)}
+            onClick={() => {
+              if (!locked) setOpenMini((value) => !value)
+            }}
           >
             ＋ サブタスク
           </button>
           <button
             className="memo-archive"
+            disabled={locked}
             title="完了フォルダへ移動"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onArchive(memo.id)}
+            onClick={() => {
+              if (!locked) onArchive(memo.id)
+            }}
           >
             ✓
           </button>
           <button
             className="memo-del"
+            disabled={locked}
             title="削除"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onDelete(memo.id)}
+            onClick={() => {
+              if (!locked) onDelete(memo.id)
+            }}
           >
             ×
           </button>
@@ -618,6 +687,11 @@ export default function MemoPanel({
   onReorder,
   onArchive,
   onDelete,
+  isUnlocked,
+  onUnlock,
+  onLock,
+  onSetPassword,
+  onClearPassword,
   onOpenDetail,
 }) {
   const newRef = useRef(null)
@@ -783,6 +857,11 @@ export default function MemoPanel({
             onReorder={onReorder}
             onArchive={onArchive}
             onDelete={onDelete}
+            isUnlocked={isUnlocked}
+            onUnlock={onUnlock}
+            onLock={onLock}
+            onSetPassword={onSetPassword}
+            onClearPassword={onClearPassword}
             onOpenDetail={onOpenDetail}
           />
         ))}

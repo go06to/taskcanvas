@@ -39,6 +39,68 @@ const escapeHtml = (value = '') =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;')
 
+const digestPassword = async (password, salt) => {
+  const subtle = globalThis.crypto?.subtle
+  if (!subtle) throw new Error('crypto-unavailable')
+  const source = new TextEncoder().encode(`${salt}:${password}`)
+  const digest = await subtle.digest('SHA-256', source)
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('')
+}
+
+function PasswordDialog({ dialog, onChange, onSubmit, onCancel }) {
+  if (!dialog) return null
+
+  return (
+    <div className="lock-overlay" role="presentation">
+      <div
+        className="lock-box"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="password-dialog-title"
+      >
+        <h3 id="password-dialog-title">{dialog.title}</h3>
+        <p>{dialog.message}</p>
+        <input
+          type="password"
+          value={dialog.password}
+          autoFocus
+          placeholder="PW"
+          className={dialog.error ? 'error' : ''}
+          onChange={(e) => onChange('password', e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !dialog.confirm) onSubmit()
+            if (e.key === 'Escape') onCancel()
+          }}
+        />
+        {dialog.confirm && (
+          <input
+            type="password"
+            value={dialog.confirmPassword}
+            placeholder="PW（確認）"
+            className={dialog.error ? 'error' : ''}
+            onChange={(e) => onChange('confirmPassword', e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') onSubmit()
+              if (e.key === 'Escape') onCancel()
+            }}
+          />
+        )}
+        {dialog.error && <p className="lock-error">{dialog.error}</p>}
+        <div className="lock-actions">
+          <button type="button" className="ghost" onClick={onCancel}>
+            キャンセル
+          </button>
+          <button type="button" className="lock-ok" onClick={onSubmit}>
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // 旧ボードの未アーカイブタスクを、新しい分類付きMEMOへ一度だけ移行する。
 // 旧タスク固有の項目もオブジェクト内に残し、情報自体は失わない。
 function migrateActiveTasksToMemos(data) {
@@ -136,10 +198,13 @@ export default function App() {
   const [notificationPermission, setNotificationPermission] = useState(() =>
     typeof Notification === 'undefined' ? 'unsupported' : Notification.permission,
   )
+  const [unlockedMemoIds, setUnlockedMemoIds] = useState(() => new Set())
+  const [passwordDialog, setPasswordDialog] = useState(null)
   // クラウドと最後に同期した内容（送受信のループ防止用）。
   const lastSyncRef = useRef(
     JSON.stringify({ tasks: [], memos: [], templates: [], knowledge: [] }),
   )
+  const passwordResolveRef = useRef(null)
 
   // 開いたままの画面や旧キャッシュにも移行を適用する。
   useEffect(() => {
@@ -158,6 +223,54 @@ export default function App() {
     setActiveTerm(key)
     localStorage.setItem('tb-active-term', key)
   }
+
+  const askPassword = ({ title, message, confirm = false, minLength = 1 }) =>
+    new Promise((resolve) => {
+      passwordResolveRef.current = resolve
+      setPasswordDialog({
+        title,
+        message,
+        confirm,
+        minLength,
+        password: '',
+        confirmPassword: '',
+        error: '',
+      })
+    })
+
+  const resolvePasswordDialog = (value) => {
+    const resolve = passwordResolveRef.current
+    passwordResolveRef.current = null
+    setPasswordDialog(null)
+    if (resolve) resolve(value)
+  }
+
+  const updatePasswordDialog = (field, value) =>
+    setPasswordDialog((current) =>
+      current ? { ...current, [field]: value, error: '' } : current,
+    )
+
+  const submitPasswordDialog = () => {
+    if (!passwordDialog) return
+    const password = passwordDialog.password
+    if (password.length < passwordDialog.minLength) {
+      setPasswordDialog((current) =>
+        current
+          ? { ...current, error: `PWは${current.minLength}文字以上で入力してください` }
+          : current,
+      )
+      return
+    }
+    if (passwordDialog.confirm && password !== passwordDialog.confirmPassword) {
+      setPasswordDialog((current) =>
+        current ? { ...current, error: 'PWが一致しません' } : current,
+      )
+      return
+    }
+    resolvePasswordDialog(password)
+  }
+
+  const cancelPasswordDialog = () => resolvePasswordDialog(null)
 
   // --- 認証（Google ログイン）-------------------------------------------
   const signIn = () => {
@@ -465,19 +578,118 @@ export default function App() {
   }
 
   // --- メモ（登録時に MEMO / SPRINT / FOCUS / VISION を選択）-------------
-  const addMemo = (text, status = 'note', term) => {
+  const isMemoProtected = (memo) => Boolean(memo?.passwordHash)
+  const isMemoUnlocked = (id) => unlockedMemoIds.has(id)
+  const canReadMemo = (memo) => !isMemoProtected(memo) || isMemoUnlocked(memo.id)
+  const warnIfMemoPasswordRequired = (id) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo || canReadMemo(memo)) return false
+    alert('このタスクはPWが必要です。')
+    return true
+  }
+  const updateMemo = (id, patch, { allowProtected = false } = {}) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === id && (allowProtected || canReadMemo(memo))
+          ? { ...memo, ...patch }
+          : memo,
+      ),
+    )
+
+  const makePasswordPatch = async (password) => {
+    const passwordSalt = newId()
+    return {
+      passwordSalt,
+      passwordHash: await digestPassword(password, passwordSalt),
+      passwordProtectedAt: nowISO(),
+    }
+  }
+
+  const unlockMemo = async (id) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo) return false
+    if (!isMemoProtected(memo)) return true
+    if (isMemoUnlocked(id)) return true
+    const password = await askPassword({
+      title: 'PW入力',
+      message: 'このタスクを開くにはPWが必要です。',
+    })
+    if (password === null) return false
+    try {
+      const passwordHash = await digestPassword(password, memo.passwordSalt || '')
+      if (passwordHash !== memo.passwordHash) {
+        alert('PWが違います。')
+        return false
+      }
+      setUnlockedMemoIds((current) => new Set(current).add(id))
+      return true
+    } catch {
+      alert('このブラウザではPW機能を使えません。')
+      return false
+    }
+  }
+
+  const lockMemoView = (id) =>
+    setUnlockedMemoIds((current) => {
+      const next = new Set(current)
+      next.delete(id)
+      return next
+    })
+
+  const setMemoPassword = async (id) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo) return false
+    if (isMemoProtected(memo) && !(await unlockMemo(id))) return false
+    const password = await askPassword({
+      title: 'PW設定',
+      message: 'このタスクを開くためのPWを設定します。',
+      confirm: true,
+      minLength: 4,
+    })
+    if (password === null) return false
+    try {
+      const patch = await makePasswordPatch(password)
+      updateMemo(id, patch, { allowProtected: true })
+      setUnlockedMemoIds((current) => new Set(current).add(id))
+      return true
+    } catch {
+      alert('このブラウザではPW機能を使えません。')
+      return false
+    }
+  }
+
+  const clearMemoPassword = async (id) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo || !isMemoProtected(memo)) return false
+    if (!(await unlockMemo(id))) return false
+    if (!confirm('このタスクのPWを解除しますか？')) return false
+    updateMemo(
+      id,
+      { passwordSalt: null, passwordHash: null, passwordProtectedAt: null },
+      { allowProtected: true },
+    )
+    lockMemoView(id)
+    return true
+  }
+
+  const addMemo = (text, status = 'note', term, passwordPatch = {}) => {
     const t = text.trim()
-    if (!t || !term) return
+    if (!t || !term) return null
+    const id = newId()
     // 新しく作成したMEMOを一覧の先頭へ追加。
     setMemos((prev) => [
       {
-        id: newId(),
+        id,
         text: t,
         status,
         term,
         comment: '',
         miniTasks: [],
         alarmAt: null,
+        passwordSalt: null,
+        passwordHash: null,
+        passwordProtectedAt: null,
+        ...passwordPatch,
         createdAt: nowISO(),
         done: false,
         archived: false,
@@ -485,43 +697,51 @@ export default function App() {
       },
       ...prev,
     ])
+    return id
   }
 
-  const toggleMemoDone = (id) =>
+  const addProtectedMemo = async (text, status = 'note', term) => {
+    const t = text.trim()
+    if (!t || !term) return false
+    const password = await askPassword({
+      title: 'PW付きで作成',
+      message: 'このタスクを開くためのPWを設定します。',
+      confirm: true,
+      minLength: 4,
+    })
+    if (password === null) return false
+    try {
+      const patch = await makePasswordPatch(password)
+      const id = addMemo(t, status, term, patch)
+      if (id) setUnlockedMemoIds((current) => new Set(current).add(id))
+      return Boolean(id)
+    } catch {
+      alert('このブラウザではPW機能を使えません。')
+      return false
+    }
+  }
+
+  const toggleMemoDone = (id) => {
+    if (warnIfMemoPasswordRequired(id)) return
     setMemos((prev) =>
       prev.map((m) => (m.id === id ? { ...m, done: !m.done } : m)),
     )
+  }
 
-  const editMemo = (id, text) =>
-    setMemos((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, text } : m)),
-    )
+  const editMemo = (id, text) => updateMemo(id, { text })
 
   const editMemoComment = (id, comment) =>
-    setMemos((prev) =>
-      prev.map((m) =>
-        m.id === id ? { ...m, comment, commentUpdatedAt: comment ? nowISO() : null } : m,
-      ),
-    )
+    updateMemo(id, { comment, commentUpdatedAt: comment ? nowISO() : null })
 
-  const setMemoStatus = (id, status) =>
-    setMemos((prev) =>
-      prev.map((memo) => (memo.id === id ? { ...memo, status } : memo)),
-    )
+  const setMemoStatus = (id, status) => updateMemo(id, { status })
 
-  const setMemoTerm = (id, term) =>
-    setMemos((prev) =>
-      prev.map((memo) => (memo.id === id ? { ...memo, term } : memo)),
-    )
+  const setMemoTerm = (id, term) => updateMemo(id, { term })
 
   const setMemoAlarm = (id, alarmAt) =>
-    setMemos((prev) =>
-      prev.map((memo) =>
-        memo.id === id ? { ...memo, alarmAt, notifyDate: null } : memo,
-      ),
-    )
+    updateMemo(id, { alarmAt, notifyDate: null })
 
-  const addMemoMiniTask = (memoId, title) =>
+  const addMemoMiniTask = (memoId, title) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
     setMemos((prev) =>
       prev.map((memo) =>
         memo.id === memoId
@@ -541,8 +761,10 @@ export default function App() {
           : memo,
       ),
     )
+  }
 
-  const toggleMemoMiniTask = (memoId, miniTaskId) =>
+  const toggleMemoMiniTask = (memoId, miniTaskId) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
     setMemos((prev) =>
       prev.map((memo) =>
         memo.id === memoId
@@ -555,8 +777,10 @@ export default function App() {
           : memo,
       ),
     )
+  }
 
-  const editMemoMiniTask = (memoId, miniTaskId, title) =>
+  const editMemoMiniTask = (memoId, miniTaskId, title) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
     setMemos((prev) =>
       prev.map((memo) =>
         memo.id === memoId
@@ -569,8 +793,10 @@ export default function App() {
           : memo,
       ),
     )
+  }
 
-  const setMemoMiniTaskAlarm = (memoId, miniTaskId, alarmAt) =>
+  const setMemoMiniTaskAlarm = (memoId, miniTaskId, alarmAt) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
     setMemos((prev) =>
       prev.map((memo) =>
         memo.id === memoId
@@ -585,8 +811,10 @@ export default function App() {
           : memo,
       ),
     )
+  }
 
-  const deleteMemoMiniTask = (memoId, miniTaskId) =>
+  const deleteMemoMiniTask = (memoId, miniTaskId) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
     setMemos((prev) =>
       prev.map((memo) =>
         memo.id === memoId
@@ -599,6 +827,7 @@ export default function App() {
           : memo,
       ),
     )
+  }
 
   // メモの並び替え（dragged を target の直前へ）。
   const reorderMemo = (draggedId, targetId) => {
@@ -608,6 +837,7 @@ export default function App() {
       const from = arr.findIndex((m) => m.id === draggedId)
       const to = arr.findIndex((m) => m.id === targetId)
       if (from < 0 || to < 0) return prev
+      if (!canReadMemo(arr[from])) return prev
       const [moved] = arr.splice(from, 1)
       const newTo = arr.findIndex((m) => m.id === targetId)
       arr.splice(newTo, 0, moved)
@@ -644,8 +874,10 @@ export default function App() {
     )
 
   const deleteMemo = (id) => {
+    if (warnIfMemoPasswordRequired(id)) return
     if (!confirm('このメモを削除しますか？')) return
     setMemos((prev) => prev.filter((m) => m.id !== id))
+    lockMemoView(id)
   }
 
   // --- Freespace（ナレッジカード）---------------------------------------
@@ -695,7 +927,8 @@ export default function App() {
     !q ||
     t.title.toLowerCase().includes(q) ||
     t.subtasks.some((s) => s.title.toLowerCase().includes(q))
-  const matchMemo = (m) => !q || stripHtml(m.text).toLowerCase().includes(q)
+  const matchMemo = (m) =>
+    !q || (canReadMemo(m) && stripHtml(m.text).toLowerCase().includes(q))
 
   // --- 集計 ---------------------------------------------------------------
   const activeTasks = tasks.filter((t) => !t.archived && matchTask(t))
@@ -711,18 +944,27 @@ export default function App() {
   ).length
   const alarmItems = memos
     .filter((memo) => !memo.archived && !memo.done)
-    .flatMap((memo) => [
-      ...(alarmValue(memo)
-        ? [{ id: memo.id, alarmAt: alarmValue(memo), text: stripHtml(memo.text) }]
-        : []),
-      ...(memo.miniTasks || [])
-        .filter((task) => !task.done && alarmValue(task))
-        .map((task) => ({
-          id: `${memo.id}:${task.id}`,
-          alarmAt: alarmValue(task),
-          text: task.title,
-        })),
-    ])
+    .flatMap((memo) => {
+      const visible = canReadMemo(memo)
+      return [
+        ...(alarmValue(memo)
+          ? [
+              {
+                id: memo.id,
+                alarmAt: alarmValue(memo),
+                text: visible ? stripHtml(memo.text) : 'PWが必要なタスク',
+              },
+            ]
+          : []),
+        ...(visible ? memo.miniTasks || [] : [])
+          .filter((task) => !task.done && alarmValue(task))
+          .map((task) => ({
+            id: `${memo.id}:${task.id}`,
+            alarmAt: alarmValue(task),
+            text: task.title,
+          })),
+      ]
+    })
   const dueAlarmItems = alarmItems.filter((item) => {
     const time = alarmTime(item.alarmAt)
     return time !== null && time <= alarmClock
@@ -790,6 +1032,12 @@ export default function App() {
     onReorder: reorderMemo,
     onArchive: archiveMemo,
     onDelete: deleteMemo,
+    onAddProtected: addProtectedMemo,
+    isUnlocked: isMemoUnlocked,
+    onUnlock: unlockMemo,
+    onLock: lockMemoView,
+    onSetPassword: setMemoPassword,
+    onClearPassword: clearMemoPassword,
   }
   const knowledgeProps = {
     items: knowledge,
@@ -982,6 +1230,8 @@ export default function App() {
               onDelete={deleteTask}
               onRestoreMemo={restoreMemo}
               onDeleteMemo={deleteMemo}
+              isMemoUnlocked={isMemoUnlocked}
+              onUnlockMemo={unlockMemo}
             />
           </div>
         )}
@@ -1023,6 +1273,12 @@ export default function App() {
           </div>
         </div>
       )}
+      <PasswordDialog
+        dialog={passwordDialog}
+        onChange={updatePasswordDialog}
+        onSubmit={submitPasswordDialog}
+        onCancel={cancelPasswordDialog}
+      />
     </div>
   )
 }
