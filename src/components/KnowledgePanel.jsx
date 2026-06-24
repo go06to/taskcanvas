@@ -46,6 +46,7 @@ export function KnowledgeCard({
   onDelete,
   onTogglePin,
   onOpenDetail,
+  searchQuery = '',
 }) {
   const [draft, setDraft] = useState({
     title: item.title || '',
@@ -62,6 +63,17 @@ export function KnowledgeCard({
       tags: tagsToText(item.tags),
     })
   }, [item.id, item.title, item.body, item.category, item.tags])
+  const searchNeedle = searchQuery.trim().toLowerCase()
+  const searchHaystack = [
+    item.title,
+    item.body,
+    item.category,
+    ...(item.tags || []),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  const searchHit = Boolean(searchNeedle && searchHaystack.includes(searchNeedle))
 
   const save = () => {
     const patch = {
@@ -82,7 +94,9 @@ export function KnowledgeCard({
 
   return (
     <article
-      className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${large ? 'large' : ''}`}
+      className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${
+        large ? 'large' : ''
+      } ${searchHit ? 'is-search-hit' : ''}`}
       style={{ '--note': noteColor(item.color) }}
     >
       <div className="knowledge-card-top">
@@ -177,8 +191,11 @@ export default function KnowledgePanel({
   onDelete,
   onTogglePin,
   onOpenDetail,
+  searchQuery = '',
+  onSearchQueryChange,
 }) {
   const [query, setQuery] = useState('')
+  const displayedQuery = onSearchQueryChange ? searchQuery : query
   const [draft, setDraft] = useState({
     title: '',
     body: '',
@@ -188,7 +205,7 @@ export default function KnowledgePanel({
   })
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
+    const q = displayedQuery.trim().toLowerCase()
     return [...items]
       .filter((item) => {
         if (!q) return true
@@ -204,7 +221,12 @@ export default function KnowledgePanel({
             String(a.updatedAt || a.createdAt || ''),
           ),
       )
-  }, [items, query])
+  }, [items, displayedQuery])
+
+  const updateSearch = (value) => {
+    if (onSearchQueryChange) onSearchQueryChange(value)
+    else setQuery(value)
+  }
 
   const canAdd =
     draft.title.trim() ||
@@ -235,12 +257,12 @@ export default function KnowledgePanel({
         <div className="knowledge-search">
           <span>⌕</span>
           <input
-            value={query}
+            value={displayedQuery}
             placeholder="ナレッジ検索"
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => updateSearch(e.target.value)}
           />
-          {query && (
-            <button type="button" onClick={() => setQuery('')} title="クリア">
+          {displayedQuery && (
+            <button type="button" onClick={() => updateSearch('')} title="クリア">
               ×
             </button>
           )}
@@ -299,11 +321,12 @@ export default function KnowledgePanel({
             onDelete={onDelete}
             onTogglePin={onTogglePin}
             onOpenDetail={onOpenDetail}
+            searchQuery={displayedQuery}
           />
         ))}
         {filtered.length === 0 && (
           <p className="knowledge-empty">
-            {query ? '一致するナレッジはありません' : 'ナレッジはありません'}
+            {displayedQuery ? '一致するナレッジはありません' : 'ナレッジはありません'}
           </p>
         )}
       </div>

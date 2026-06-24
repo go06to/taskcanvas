@@ -8,6 +8,13 @@ const fmtDate = (iso) => {
   ).padStart(2, '0')}`
 }
 
+const stripHtml = (html) => (html || '').replace(/<[^>]*>/g, ' ')
+const searchableText = (parts) =>
+  parts
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+
 // 完了フォルダ。完了したタスク・メモの一覧。戻す / 削除ができる。
 export default function Archive({
   tasks,
@@ -18,8 +25,37 @@ export default function Archive({
   onDeleteMemo,
   isMemoUnlocked = () => true,
   onUnlockMemo,
+  searchQuery = '',
 }) {
   const total = tasks.length + memos.length
+  const searchNeedle = searchQuery.trim().toLowerCase()
+  const taskSearchHit = (task) =>
+    Boolean(
+      searchNeedle &&
+        searchableText([
+          task.title,
+          task.comment,
+          task.notifyDate,
+          ...(task.subtasks || []).flatMap((subtask) => [
+            subtask.title,
+            subtask.comment,
+          ]),
+        ]).includes(searchNeedle),
+    )
+  const memoSearchHit = (memo) =>
+    Boolean(
+      searchNeedle &&
+        searchableText([
+          stripHtml(memo.text),
+          memo.comment,
+          memo.alarmAt,
+          ...(memo.miniTasks || []).flatMap((task) => [
+            task.title,
+            task.comment,
+            task.alarmAt,
+          ]),
+        ]).includes(searchNeedle),
+    )
 
   return (
     <main className="archive">
@@ -41,7 +77,10 @@ export default function Archive({
             {tasks.map((task) => {
               const term = TERM_MAP[task.term]
               return (
-                <li key={task.id} className="archive-item">
+                <li
+                  key={task.id}
+                  className={`archive-item ${taskSearchHit(task) ? 'is-search-hit' : ''}`}
+                >
                   <span
                     className="tag"
                     style={{ background: term.soft, color: term.color }}
@@ -75,7 +114,10 @@ export default function Archive({
               const term = MEMO_TERM_MAP[memo.term] || MEMO_TERM_MAP.memo
               const locked = Boolean(memo.passwordHash) && !isMemoUnlocked(memo.id)
               return (
-                <li key={memo.id} className="archive-item">
+                <li
+                  key={memo.id}
+                  className={`archive-item ${memoSearchHit(memo) ? 'is-search-hit' : ''}`}
+                >
                   <span
                     className="tag tag-memo"
                     style={{ background: term.soft, color: term.color }}

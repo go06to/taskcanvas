@@ -240,6 +240,7 @@ export function MemoRow({
   onLock,
   onSetPassword,
   onClearPassword,
+  searchQuery = '',
 }) {
   const ref = useRef(null)
   const [openC, setOpenC] = useState(false)
@@ -250,6 +251,17 @@ export function MemoRow({
   const miniTasks = Array.isArray(memo.miniTasks) ? memo.miniTasks : []
   const protectedMemo = Boolean(memo.passwordHash)
   const locked = protectedMemo && !isUnlocked(memo.id)
+  const searchNeedle = searchQuery.trim().toLowerCase()
+  const searchHaystack = [
+    (memo.text || '').replace(/<[^>]*>/g, ' '),
+    memo.comment,
+    memo.alarmAt,
+    ...miniTasks.flatMap((task) => [task.title, task.comment, task.alarmAt]),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+  const searchHit = Boolean(searchNeedle && !locked && searchHaystack.includes(searchNeedle))
 
   // 初期内容と外部変更の反映（編集中＝フォーカス時は触らない）。
   useEffect(() => {
@@ -303,7 +315,7 @@ export function MemoRow({
           openMini || miniTasks.length > 0 ? 'has-mini' : ''
         } ${isAlarmDue(memo) ? 'has-alarm-due' : ''} ${
           protectedMemo ? 'is-protected' : ''
-        } ${locked ? 'is-secret' : ''}`}
+        } ${locked ? 'is-secret' : ''} ${searchHit ? 'is-search-hit' : ''}`}
       >
         {!large && !locked && (
           <span
@@ -698,6 +710,7 @@ export default function MemoPanel({
   onStatusFilterChange,
   onTermFilterChange,
   createRequest = 0,
+  searchQuery = '',
 }) {
   const newRef = useRef(null)
   const [composerOpen, setComposerOpen] = useState(false)
@@ -876,6 +889,7 @@ export default function MemoPanel({
             onSetPassword={onSetPassword}
             onClearPassword={onClearPassword}
             onOpenDetail={onOpenDetail}
+            searchQuery={searchQuery}
           />
         ))}
 

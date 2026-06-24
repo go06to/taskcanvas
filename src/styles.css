@@ -19,6 +19,10 @@
   --accent-2: #2563eb;
   --glow1: rgba(37, 99, 235, 0.10);
   --glow2: rgba(24, 24, 27, 0.06);
+  --search-accent: #ea580c;
+  --search-soft: #fff3df;
+  --search-mark: #ffe08a;
+  --search-ink: #4a2400;
 
   --amber: #52525b;
 
@@ -605,6 +609,17 @@ body {
 }
 
 /* 検索ボックス */
+.search-wrap {
+  min-width: 220px;
+  margin-left: 8px;
+}
+
+.search-wrap .search {
+  width: 100%;
+  min-width: 0;
+  margin-left: 0;
+}
+
 .search {
   display: flex;
   align-items: center;
@@ -655,6 +670,124 @@ body {
 
 .search-clear:hover {
   color: var(--text);
+}
+
+.global-search-results {
+  margin-top: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+}
+
+.global-search-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.global-search-jump,
+.global-search-item {
+  border: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition: 0.15s;
+}
+
+.global-search-jump {
+  min-width: 0;
+  min-height: 34px;
+  display: grid;
+  gap: 2px;
+  place-items: center;
+  padding: 5px 4px;
+  border-radius: 7px;
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.global-search-jump span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.global-search-jump strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.global-search-jump:hover,
+.global-search-jump.is-active,
+.global-search-item:hover {
+  border-color: color-mix(in srgb, var(--search-accent) 45%, var(--line));
+  color: var(--search-accent);
+}
+
+.global-search-jump.has-results {
+  border-color: color-mix(in srgb, var(--search-accent) 52%, var(--line));
+  background: color-mix(in srgb, var(--search-soft) 78%, var(--surface));
+  color: var(--search-accent);
+}
+
+.global-search-jump.has-results strong {
+  color: var(--search-accent);
+}
+
+.global-search-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.global-search-item {
+  width: 100%;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  padding: 5px 7px;
+  border-radius: 7px;
+  text-align: left;
+}
+
+.global-search-item span {
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.global-search-item strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 11.5px;
+}
+
+.search-hit {
+  display: inline;
+  padding: 0 2px;
+  border-radius: 4px;
+  background: var(--search-mark);
+  color: var(--search-ink);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.global-search-empty {
+  margin: 8px 2px 0;
+  color: var(--faint);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 button.ghost {
@@ -947,6 +1080,12 @@ button.ghost.on {
   }
 
   .dashboard-sidebar .search {
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+  }
+
+  .dashboard-sidebar .search-wrap {
     width: 100%;
     min-width: 0;
     margin: 0;
@@ -1567,6 +1706,12 @@ button.ghost.on {
 .memo-row.has-alarm-due {
   border-color: color-mix(in srgb, var(--alert) 55%, var(--line));
   box-shadow: inset 3px 0 0 var(--alert), var(--shadow-sm);
+}
+
+.memo-row.is-search-hit {
+  border-color: color-mix(in srgb, var(--search-accent) 62%, var(--line));
+  background: color-mix(in srgb, var(--search-soft) 74%, var(--surface));
+  box-shadow: inset 4px 0 0 var(--search-accent), var(--shadow-sm);
 }
 
 .memo-row.is-protected {
@@ -2325,6 +2470,11 @@ button.ghost.on {
 
 .knowledge-card.is-pinned {
   border-color: color-mix(in srgb, var(--accent) 45%, rgba(31, 41, 55, 0.14));
+}
+
+.knowledge-card.is-search-hit {
+  border-color: color-mix(in srgb, var(--search-accent) 64%, rgba(31, 41, 55, 0.14));
+  box-shadow: inset 4px 0 0 var(--search-accent), var(--shadow-sm);
 }
 
 .knowledge-card-top {
@@ -3842,6 +3992,12 @@ button.ghost.on {
   background: var(--card-hover);
 }
 
+.archive-item.is-search-hit {
+  border-color: color-mix(in srgb, var(--search-accent) 62%, var(--line));
+  background: color-mix(in srgb, var(--search-soft) 74%, var(--card));
+  box-shadow: inset 4px 0 0 var(--search-accent);
+}
+
 .tag {
   font-size: 11.5px;
   font-weight: 800;
@@ -3997,6 +4153,12 @@ button.ghost.on {
     width: 100%;
     min-width: 0;
     height: 42px;
+    margin-left: 0;
+  }
+
+  .search-wrap {
+    width: 100%;
+    min-width: 0;
     margin-left: 0;
   }
 
@@ -4440,6 +4602,17 @@ button.ghost.on {
     margin-left: 0;
     padding: 0 7px;
     border-radius: 8px;
+  }
+
+  .search-wrap {
+    flex: 1 1 74px;
+    width: auto;
+    min-width: 62px;
+    margin-left: 0;
+  }
+
+  .global-search-results {
+    display: none;
   }
 
   .search-ic {

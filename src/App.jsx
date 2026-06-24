@@ -927,18 +927,94 @@ export default function App() {
   // --- 検索 ---------------------------------------------------------------
   const q = query.trim().toLowerCase()
   const stripHtml = (html) => (html || '').replace(/<[^>]*>/g, ' ')
+  const searchText = (parts) =>
+    parts
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+  const previewText = (value, fallback = '無題') => {
+    const text = stripHtml(value).replace(/\s+/g, ' ').trim()
+    if (!text) return fallback
+    return text.length > 48 ? `${text.slice(0, 48)}...` : text
+  }
+  const searchPreview = (value, fallback = '無題') => {
+    const text = stripHtml(value).replace(/\s+/g, ' ').trim()
+    if (!text) return fallback
+    if (!q) return previewText(text, fallback)
+    const index = text.toLowerCase().indexOf(q)
+    if (index < 0) return previewText(text, fallback)
+    const start = Math.max(0, index - 16)
+    const end = Math.min(text.length, index + q.length + 32)
+    return `${start > 0 ? '...' : ''}${text.slice(start, end)}${
+      end < text.length ? '...' : ''
+    }`
+  }
+  const renderHighlightedText = (text) => {
+    if (!q) return text
+    const lower = String(text).toLowerCase()
+    const parts = []
+    let cursor = 0
+    let index = lower.indexOf(q)
+
+    while (index >= 0) {
+      if (index > cursor) parts.push(text.slice(cursor, index))
+      parts.push(
+        <mark className="search-hit" key={`${index}-${q}`}>
+          {text.slice(index, index + q.length)}
+        </mark>,
+      )
+      cursor = index + q.length
+      index = lower.indexOf(q, cursor)
+    }
+
+    if (cursor < text.length) parts.push(text.slice(cursor))
+    return parts
+  }
   const matchTask = (t) =>
     !q ||
-    t.title.toLowerCase().includes(q) ||
-    t.subtasks.some((s) => s.title.toLowerCase().includes(q))
+    searchText([
+      t.title,
+      t.comment,
+      t.notifyDate,
+      ...(t.subtasks || []).flatMap((s) => [s.title, s.comment]),
+    ]).includes(q)
   const matchMemo = (m) =>
-    !q || (canReadMemo(m) && stripHtml(m.text).toLowerCase().includes(q))
+    !q ||
+    (canReadMemo(m) &&
+      searchText([
+        stripHtml(m.text),
+        m.comment,
+        m.alarmAt,
+        ...(m.miniTasks || []).flatMap((task) => [
+          task.title,
+          task.comment,
+          task.alarmAt,
+        ]),
+      ]).includes(q))
+  const matchKnowledge = (item) =>
+    !q ||
+    searchText([item.title, item.body, item.category, ...(item.tags || [])]).includes(q)
 
   // --- 集計 ---------------------------------------------------------------
   const activeTasks = tasks.filter((t) => !t.archived && matchTask(t))
   const archivedTasks = tasks.filter((t) => t.archived && matchTask(t))
   const activeMemos = memos.filter((m) => !m.archived && matchMemo(m))
   const archivedMemos = memos.filter((m) => m.archived && matchMemo(m))
+  const filteredKnowledge = knowledge.filter(matchKnowledge)
+  const archiveSearchResults = [
+    ...archivedMemos.map((memo) => ({
+      id: `memo-${memo.id}`,
+      label: 'メモ',
+      title: searchPreview(memo.text, 'メモ'),
+    })),
+    ...archivedTasks.map((task) => ({
+      id: `task-${task.id}`,
+      label: 'タスク',
+      title: searchPreview(task.title, 'タスク'),
+    })),
+  ]
+  const searchResultTotal =
+    activeMemos.length + filteredKnowledge.length + archiveSearchResults.length
   // バッジ件数は検索に左右されない総数で表示。
   const archivedCount =
     tasks.filter((t) => t.archived).length +
@@ -1079,6 +1155,7 @@ export default function App() {
     onLock: lockMemoView,
     onSetPassword: setMemoPassword,
     onClearPassword: clearMemoPassword,
+    searchQuery: query,
   }
   const knowledgeProps = {
     items: knowledge,
@@ -1086,9 +1163,30 @@ export default function App() {
     onUpdate: updateKnowledge,
     onDelete: deleteKnowledge,
     onTogglePin: toggleKnowledgePin,
+    searchQuery: query,
+    onSearchQueryChange: setQuery,
   }
   const openDetail = (type, id) => setDetail({ type, id })
   const closeDetail = () => setDetail(null)
+  const showTaskSearchResults = () => {
+    setView('board')
+    setSidePane('memo')
+    setDashboardStatusFilter('all')
+    setDashboardTermFilter('all')
+  }
+  const showKnowledgeSearchResults = () => {
+    setView('board')
+    setSidePane('free')
+  }
+  const showArchiveSearchResults = () => setView('archive')
+  const openMemoSearchResult = (id) => {
+    showTaskSearchResults()
+    setDetail({ type: 'memo', id })
+  }
+  const openKnowledgeSearchResult = (id) => {
+    showKnowledgeSearchResults()
+    setDetail({ type: 'knowledge', id })
+  }
   const openDashboardAlarm = async (item) => {
     const memoId = String(item.id).split(':')[0]
     const memo = memos.find((m) => m.id === memoId)
@@ -1177,21 +1275,109 @@ export default function App() {
           </button>
         </nav>
 
-        <div className="search">
-          <span className="search-ic">⌕</span>
-          <input
-            value={query}
-            placeholder="検索（タスク・メモ）"
-            onChange={(e) => setQuery(e.target.value)}
-          />
-          {query && (
-            <button
-              className="search-clear"
-              onClick={() => setQuery('')}
-              title="クリア"
-            >
-              ✕
-            </button>
+        <div className="search-wrap">
+          <div className="search">
+            <span className="search-ic">⌕</span>
+            <input
+              value={query}
+              placeholder="全体検索"
+              onChange={(e) => setQuery(e.target.value)}
+            />
+            {query && (
+              <button
+                className="search-clear"
+                onClick={() => setQuery('')}
+                title="クリア"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          {q && (
+            <div className="global-search-results" aria-live="polite">
+              <div className="global-search-summary" aria-label="検索結果">
+                <button
+                  type="button"
+                  className={`global-search-jump ${
+                    view === 'board' && sidePane === 'memo' ? 'is-active' : ''
+                  } ${activeMemos.length > 0 ? 'has-results' : ''}`}
+                  onClick={showTaskSearchResults}
+                >
+                  <span>Task</span>
+                  <strong>{activeMemos.length}</strong>
+                </button>
+                <button
+                  type="button"
+                  className={`global-search-jump ${
+                    view === 'board' && sidePane === 'free' ? 'is-active' : ''
+                  } ${filteredKnowledge.length > 0 ? 'has-results' : ''}`}
+                  onClick={showKnowledgeSearchResults}
+                >
+                  <span>Freespace</span>
+                  <strong>{filteredKnowledge.length}</strong>
+                </button>
+                <button
+                  type="button"
+                  className={`global-search-jump ${
+                    view === 'archive' ? 'is-active' : ''
+                  } ${archiveSearchResults.length > 0 ? 'has-results' : ''}`}
+                  onClick={showArchiveSearchResults}
+                >
+                  <span>完了フォルダ</span>
+                  <strong>{archiveSearchResults.length}</strong>
+                </button>
+              </div>
+              {searchResultTotal === 0 ? (
+                <p className="global-search-empty">一致する項目はありません</p>
+              ) : (
+                <div className="global-search-list">
+                  {activeMemos.slice(0, 2).map((memo) => (
+                    <button
+                      key={memo.id}
+                      type="button"
+                      className="global-search-item"
+                      onClick={() => openMemoSearchResult(memo.id)}
+                    >
+                      <span>Task</span>
+                      <strong>
+                        {renderHighlightedText(searchPreview(memo.text, 'Task'))}
+                      </strong>
+                    </button>
+                  ))}
+                  {filteredKnowledge.slice(0, 2).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="global-search-item"
+                      onClick={() => openKnowledgeSearchResult(item.id)}
+                    >
+                      <span>Free</span>
+                      <strong>
+                        {renderHighlightedText(
+                          searchPreview(
+                            [item.title, item.body, item.category, ...(item.tags || [])]
+                              .filter(Boolean)
+                              .join(' '),
+                            'Freespace',
+                          ),
+                        )}
+                      </strong>
+                    </button>
+                  ))}
+                  {archiveSearchResults.slice(0, 2).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="global-search-item"
+                      onClick={showArchiveSearchResults}
+                    >
+                      <span>{item.label}</span>
+                      <strong>{renderHighlightedText(item.title)}</strong>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 
@@ -1438,6 +1624,7 @@ export default function App() {
               memos={activeMemos}
               onAdd={addMemo}
               onOpenDetail={(id) => openDetail('memo', id)}
+              searchQuery={query}
               statusFilter={dashboardStatusFilter}
               termFilter={dashboardTermFilter}
               onStatusFilterChange={setDashboardStatusFilter}
@@ -1458,6 +1645,7 @@ export default function App() {
               onDeleteMemo={deleteMemo}
               isMemoUnlocked={isMemoUnlocked}
               onUnlockMemo={unlockMemo}
+              searchQuery={query}
             />
           </div>
         )}
