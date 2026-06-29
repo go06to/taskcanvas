@@ -840,7 +840,7 @@ button.ghost.on {
   display: block;
   margin: 0 auto;
   object-fit: cover;
-  filter: grayscale(1);
+  filter: none;
 }
 
 .auth-card h1 {
@@ -4027,6 +4027,154 @@ button.ghost.on {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
+}
+
+.archive-subtask-count {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-strong);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* 完了フォルダの拡大表示（閲覧専用） */
+.archive-detail {
+  color: var(--text);
+}
+
+.archive-detail-head,
+.archive-detail-section-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.archive-detail-status {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.archive-detail-title {
+  margin: 16px 0 8px;
+  font-size: 22px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.archive-detail-rich {
+  font-weight: 700;
+}
+
+.archive-detail-rich p {
+  margin: 0;
+}
+
+.archive-detail-date {
+  margin: 0;
+  color: var(--faint);
+  font-size: 12px;
+}
+
+.archive-detail-section {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.archive-detail-section h3 {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.archive-detail-comment {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-strong);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.archive-detail-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.archive-detail-subtasks li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+.archive-detail-check {
+  display: grid;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.archive-detail-subtasks li.is-done .archive-detail-check {
+  border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent);
+}
+
+.archive-detail-subtask-body {
+  min-width: 0;
+  flex: 1;
+}
+
+.archive-detail-subtask-title {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.archive-detail-subtasks li.is-done .archive-detail-subtask-title {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+.archive-detail-subtask-meta {
+  margin-top: 4px;
+  color: var(--faint);
+  font-size: 11px;
+}
+
+.archive-detail-subtask-comment {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.archive-detail-empty {
+  margin: 12px 0 0;
+  color: var(--faint);
+  font-size: 13px;
 }
 
 /* ---------- レスポンシブ ----------

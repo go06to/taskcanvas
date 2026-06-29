@@ -4,7 +4,7 @@ import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
 import { TERMS, MEMO_TERMS, STORAGE_KEY } from './constants'
 import { isDue } from './dateUtils'
 import { db, auth, firebaseEnabled, googleProvider, USERS } from './firebase'
-import Archive from './components/Archive'
+import Archive, { ArchiveDetail } from './components/Archive'
 import MemoPanel, { MEMO_STATUSES, MemoRow } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
 import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
@@ -182,7 +182,7 @@ export default function App() {
   const [view, setView] = useState('board') // 'board' | 'archive'
   const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
   const [query, setQuery] = useState('') // 検索キーワード
-  const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge', id}
+  const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge'|'archive-task'|'archive-memo', id}
   const [quickAddText, setQuickAddText] = useState('')
   const [dashboardStatusFilter, setDashboardStatusFilter] = useState('all')
   const [dashboardTermFilter, setDashboardTermFilter] = useState('all')
@@ -1205,6 +1205,10 @@ export default function App() {
     detail?.type === 'knowledge'
       ? knowledge.find((item) => item.id === detail.id)
       : null
+  const detailArchiveTask =
+    detail?.type === 'archive-task' ? tasks.find((task) => task.id === detail.id) : null
+  const detailArchiveMemo =
+    detail?.type === 'archive-memo' ? memos.find((memo) => memo.id === detail.id) : null
   // --- 認証ゲート（Firebase 有効時のみ）---------------------------------
   if (firebaseEnabled && !authReady) {
     return (
@@ -1639,6 +1643,7 @@ export default function App() {
             <Archive
               tasks={archivedTasks}
               memos={archivedMemos}
+              onOpenDetail={(type, id) => openDetail(`archive-${type}`, id)}
               onRestore={restoreTask}
               onDelete={deleteTask}
               onRestoreMemo={restoreMemo}
@@ -1651,8 +1656,12 @@ export default function App() {
         )}
       </div>
 
-      {/* 拡大表示（タスク／メモ／ナレッジ） */}
-      {(detailTask || detailMemo || detailKnowledge) && (
+      {/* 拡大表示（タスク／メモ／ナレッジ／完了済みアイテム） */}
+      {(detailTask ||
+        detailMemo ||
+        detailKnowledge ||
+        detailArchiveTask ||
+        detailArchiveMemo) && (
         <div
           className="detail-overlay"
           onClick={(e) => {
@@ -1683,6 +1692,12 @@ export default function App() {
                 onOpenDetail={() => {}}
                 {...knowledgeProps}
               />
+            )}
+            {detailArchiveTask && (
+              <ArchiveDetail item={detailArchiveTask} type="task" />
+            )}
+            {detailArchiveMemo && (
+              <ArchiveDetail item={detailArchiveMemo} type="memo" />
             )}
           </div>
         </div>
