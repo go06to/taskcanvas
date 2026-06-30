@@ -1,26 +1,45 @@
 import { useEffect, useMemo, useState } from 'react'
 
 const COLORS = [
-  { key: 'white', label: '白', value: '#ffffff' },
-  { key: 'gray', label: '薄いグレー', value: '#f4f4f5' },
-  { key: 'slate', label: 'グレー', value: '#e9eaec' },
-  { key: 'blue', label: '薄い青', value: '#eaf2ff' },
+  { key: 'white', label: '白', value: '#ffffff', accent: '#64748b' },
+  { key: 'gray', label: '薄いグレー', value: '#f4f4f5', accent: '#71717a' },
+  { key: 'slate', label: 'グレー', value: '#e9eaec', accent: '#475569' },
+  { key: 'blue', label: '薄い青', value: '#eaf2ff', accent: '#3b82f6' },
+  { key: 'cyan', label: '水色', value: '#e6f9fb', accent: '#06b6d4' },
+  { key: 'green', label: 'ミント', value: '#e8f7ef', accent: '#10b981' },
+  { key: 'yellow', label: '黄色', value: '#fff8d9', accent: '#eab308' },
+  { key: 'orange', label: 'オレンジ', value: '#fff0df', accent: '#f97316' },
+  { key: 'pink', label: 'ピンク', value: '#fcebf3', accent: '#ec4899' },
+  { key: 'purple', label: '紫', value: '#f2edff', accent: '#8b5cf6' },
 ]
 
 const defaultColor = COLORS[0].value
+const EFFECTS = [
+  { key: 'none', label: 'エフェクトなし' },
+  { key: 'glow', label: '発光' },
+  { key: 'pulse', label: 'パルス' },
+  { key: 'float', label: '浮遊' },
+  { key: 'ripple', label: '波紋' },
+  { key: 'shine', label: '光沢' },
+]
+const defaultEffect = EFFECTS[0].key
 
 const LEGACY_COLORS = {
-  '#fff4bf': '#f4f4f5',
-  '#dff6ea': '#e9eaec',
+  '#fff4bf': '#fff8d9',
+  '#dff6ea': '#e8f7ef',
   '#dfeeff': '#eaf2ff',
-  '#f8e1ec': '#f4f4f5',
-  '#eee7ff': '#e9eaec',
+  '#f8e1ec': '#fcebf3',
+  '#eee7ff': '#f2edff',
 }
 
 const noteColor = (color) =>
   COLORS.some((option) => option.value === color)
     ? color
     : LEGACY_COLORS[color] || defaultColor
+const noteAccent = (color) =>
+  COLORS.find((option) => option.value === noteColor(color))?.accent || COLORS[0].accent
+const noteEffect = (effect) =>
+  EFFECTS.some((option) => option.key === effect) ? effect : defaultEffect
 
 const fmtDate = (iso) => {
   if (!iso) return ''
@@ -45,9 +64,12 @@ export function KnowledgeCard({
   onUpdate,
   onDelete,
   onTogglePin,
+  onReorder,
   onOpenDetail,
   searchQuery = '',
 }) {
+  const [dragOver, setDragOver] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const [draft, setDraft] = useState({
     title: item.title || '',
     body: item.body || '',
@@ -96,10 +118,63 @@ export function KnowledgeCard({
     <article
       className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${
         large ? 'large' : ''
-      } ${searchHit ? 'is-search-hit' : ''}`}
-      style={{ '--note': noteColor(item.color) }}
+      } ${searchHit ? 'is-search-hit' : ''} ${dragOver ? 'is-drag-over' : ''} ${
+        dragging ? 'is-dragging' : ''
+      } effect-${noteEffect(item.effect)}`}
+      style={{
+        '--note': noteColor(item.color),
+        '--note-accent': noteAccent(item.color),
+      }}
+      onDragOver={
+        large
+          ? undefined
+          : (e) => {
+              e.preventDefault()
+              e.dataTransfer.dropEffect = 'move'
+              setDragOver(true)
+            }
+      }
+      onDragLeave={
+        large
+          ? undefined
+          : (e) => {
+              if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false)
+            }
+      }
+      onDrop={
+        large
+          ? undefined
+          : (e) => {
+              e.preventDefault()
+              setDragOver(false)
+              const id =
+                e.dataTransfer.getData('application/x-taskcanvas-knowledge') ||
+                e.dataTransfer.getData('text/plain')
+              if (id && id !== item.id) onReorder(id, item.id)
+            }
+      }
     >
       <div className="knowledge-card-top">
+        {!large && (
+          <span
+            className="knowledge-drag"
+            title="ドラッグでカードを並び替え"
+            aria-label="ドラッグでカードを並び替え"
+            draggable
+            onDragStart={(e) => {
+              setDragging(true)
+              e.dataTransfer.setData('application/x-taskcanvas-knowledge', item.id)
+              e.dataTransfer.setData('text/plain', item.id)
+              e.dataTransfer.effectAllowed = 'move'
+            }}
+            onDragEnd={() => {
+              setDragging(false)
+              setDragOver(false)
+            }}
+          >
+            ⠿
+          </span>
+        )}
         <input
           className="knowledge-title-input"
           value={draft.title}
@@ -169,6 +244,19 @@ export function KnowledgeCard({
             />
           ))}
         </div>
+        <select
+          className="knowledge-effect-select"
+          value={noteEffect(item.effect)}
+          onChange={(e) => onUpdate(item.id, { effect: e.target.value })}
+          aria-label="カードエフェクト"
+          title="カードエフェクトを選択"
+        >
+          {EFFECTS.map((effect) => (
+            <option key={effect.key} value={effect.key}>
+              {effect.label}
+            </option>
+          ))}
+        </select>
         <span className="knowledge-date">{fmtDate(item.updatedAt || item.createdAt)}</span>
         <button
           type="button"
@@ -190,6 +278,7 @@ export default function KnowledgePanel({
   onUpdate,
   onDelete,
   onTogglePin,
+  onReorder,
   onOpenDetail,
   searchQuery = '',
   onSearchQueryChange,
@@ -202,25 +291,18 @@ export default function KnowledgePanel({
     category: '',
     tags: '',
     color: defaultColor,
+    effect: defaultEffect,
   })
 
   const filtered = useMemo(() => {
     const q = displayedQuery.trim().toLowerCase()
-    return [...items]
-      .filter((item) => {
-        if (!q) return true
-        return [item.title, item.body, item.category, ...(item.tags || [])]
-          .join(' ')
-          .toLowerCase()
-          .includes(q)
-      })
-      .sort(
-        (a, b) =>
-          (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) ||
-          String(b.updatedAt || b.createdAt || '').localeCompare(
-            String(a.updatedAt || a.createdAt || ''),
-          ),
-      )
+    return items.filter((item) => {
+      if (!q) return true
+      return [item.title, item.body, item.category, ...(item.tags || [])]
+        .join(' ')
+        .toLowerCase()
+        .includes(q)
+    })
   }, [items, displayedQuery])
 
   const updateSearch = (value) => {
@@ -242,8 +324,16 @@ export default function KnowledgePanel({
       category: draft.category.trim(),
       tags: parseTags(draft.tags),
       color: draft.color,
+      effect: draft.effect,
     })
-    setDraft({ title: '', body: '', category: '', tags: '', color: defaultColor })
+    setDraft({
+      title: '',
+      body: '',
+      category: '',
+      tags: '',
+      color: defaultColor,
+      effect: defaultEffect,
+    })
   }
 
   return (
@@ -269,7 +359,13 @@ export default function KnowledgePanel({
         </div>
       </div>
 
-      <div className="knowledge-composer" style={{ '--note': draft.color }}>
+      <div
+        className={`knowledge-composer effect-${draft.effect}`}
+        style={{
+          '--note': draft.color,
+          '--note-accent': noteAccent(draft.color),
+        }}
+      >
         <input
           className="knowledge-compose-title"
           value={draft.title}
@@ -294,17 +390,31 @@ export default function KnowledgePanel({
             placeholder="タグ"
             onChange={(e) => setDraft((v) => ({ ...v, tags: e.target.value }))}
           />
-          <div className="knowledge-swatches" aria-label="new card color">
-            {COLORS.map((c) => (
-              <button
-                key={c.key}
-                type="button"
-                className={`knowledge-swatch ${draft.color === c.value ? 'active' : ''}`}
-                style={{ '--swatch': c.value }}
-                onClick={() => setDraft((v) => ({ ...v, color: c.value }))}
-                title={c.label}
-              />
-            ))}
+          <div className="knowledge-compose-options">
+            <div className="knowledge-swatches" aria-label="new card color">
+              {COLORS.map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  className={`knowledge-swatch ${draft.color === c.value ? 'active' : ''}`}
+                  style={{ '--swatch': c.value }}
+                  onClick={() => setDraft((v) => ({ ...v, color: c.value }))}
+                  title={c.label}
+                />
+              ))}
+            </div>
+            <select
+              className="knowledge-effect-select"
+              value={draft.effect}
+              onChange={(e) => setDraft((v) => ({ ...v, effect: e.target.value }))}
+              aria-label="新しいカードのエフェクト"
+            >
+              {EFFECTS.map((effect) => (
+                <option key={effect.key} value={effect.key}>
+                  {effect.label}
+                </option>
+              ))}
+            </select>
           </div>
           <button type="button" className="knowledge-add" onClick={add} disabled={!canAdd}>
             追加
@@ -320,6 +430,7 @@ export default function KnowledgePanel({
             onUpdate={onUpdate}
             onDelete={onDelete}
             onTogglePin={onTogglePin}
+            onReorder={onReorder}
             onOpenDetail={onOpenDetail}
             searchQuery={displayedQuery}
           />

@@ -885,7 +885,7 @@ export default function App() {
   }
 
   // --- Freespace（ナレッジカード）---------------------------------------
-  const addKnowledge = ({ title, body, category, tags, color }) => {
+  const addKnowledge = ({ title, body, category, tags, color, effect }) => {
     if (!title && !body && !category && (!tags || tags.length === 0)) return
     setKnowledge((prev) => [
       {
@@ -895,6 +895,7 @@ export default function App() {
         category,
         tags,
         color,
+        effect: effect || 'none',
         pinned: false,
         createdAt: nowISO(),
         updatedAt: nowISO(),
@@ -918,6 +919,21 @@ export default function App() {
           : item,
       ),
     )
+
+  // ナレッジカードの並び替え（ドラッグ元とドロップ先を入れ替える）。
+  const reorderKnowledge = (draggedId, targetId) => {
+    if (draggedId === targetId) return
+    setKnowledge((prev) => {
+      const next = [...prev]
+      const from = next.findIndex((item) => item.id === draggedId)
+      const to = next.findIndex((item) => item.id === targetId)
+      if (from < 0 || to < 0) return prev
+      const moved = next[from]
+      next[from] = next[to]
+      next[to] = moved
+      return next
+    })
+  }
 
   const deleteKnowledge = (id) => {
     if (!confirm('このナレッジを削除しますか？')) return
@@ -1163,6 +1179,7 @@ export default function App() {
     onUpdate: updateKnowledge,
     onDelete: deleteKnowledge,
     onTogglePin: toggleKnowledgePin,
+    onReorder: reorderKnowledge,
     searchQuery: query,
     onSearchQueryChange: setQuery,
   }
