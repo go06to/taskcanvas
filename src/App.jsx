@@ -20,6 +20,78 @@ const newId = () =>
 // 今日の日付を ISO 文字列で返す。
 const nowISO = () => new Date().toISOString()
 
+const localDateStamp = (date = new Date()) =>
+  [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+
+const csvCell = (value) => {
+  let text = value == null ? '' : String(value)
+  // Excelで数式として実行されないよう、危険な先頭文字を文字列として扱う。
+  if (/^\s*[=+\-@]/.test(text)) text = `'${text}`
+  return `"${text.replace(/"/g, '""')}"`
+}
+
+const downloadCsv = (filename, columns, rows) => {
+  const lines = [
+    columns.map((column) => csvCell(column.label)),
+    ...rows.map((row) => columns.map((column) => csvCell(row[column.key]))),
+  ]
+  // BOMを付けることで、Excelで直接開いても日本語が文字化けしにくくなる。
+  const csv = `\uFEFF${lines.map((line) => line.join(',')).join('\r\n')}`
+  const blob = new Blob([csv], {
+    type: 'text/csv;charset=utf-8',
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
+
+const richTextToPlain = (html = '') => {
+  const withBreaks = String(html)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(?:div|p|li|h[1-6])>/gi, '\n')
+  const parsed = new DOMParser().parseFromString(withBreaks, 'text/html')
+  return (parsed.body.textContent || '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+const formatCsvDate = (value) => {
+  if (!value) return ''
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return [
+    `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(
+      date.getDate(),
+    ).padStart(2, '0')}`,
+    `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(
+      2,
+      '0',
+    )}`,
+  ].join(' ')
+}
+
+const formatChecklist = (items = []) =>
+  items
+    .map((item) => {
+      const details = [
+        `${item.done ? '☑' : '☐'} ${item.title || ''}`.trim(),
+        item.comment ? `コメント: ${item.comment}` : '',
+        alarmValue(item) ? `アラーム: ${alarmValue(item)}` : '',
+      ].filter(Boolean)
+      return details.join(' / ')
+    })
+    .join('\n')
+
 const alarmValue = (item) => {
   const value = item?.alarmAt || item?.notifyDate
   return value ? String(value).slice(0, 10) : null
@@ -1130,6 +1202,115 @@ export default function App() {
     setNotificationPermission(permission)
   }
 
+  // 画面ごとの内容を、表計算ソフトで扱いやすいCSVとして保存する。
+  const exportSection = (section) => {
+    const taskColumns = [
+      { key: 'id', label: 'ID' },
+      { key: 'kind', label: '種類' },
+      { key: 'term', label: '分類' },
+      { key: 'status', label: 'ステータス' },
+      { key: 'title', label: 'タイトル' },
+      { key: 'comment', label: 'コメント' },
+      { key: 'done', label: '状態' },
+      { key: 'alarm', label: 'アラーム' },
+      { key: 'subtasks', label: 'サブタスク' },
+      { key: 'createdAt', label: '作成日時' },
+      { key: 'completedAt', label: '完了日時' },
+      { key: 'protected', label: 'PW保護' },
+    ]
+    const knowledgeColumns = [
+      { key: 'id', label: 'ID' },
+      { key: 'title', label: 'タイトル' },
+      { key: 'body', label: '本文' },
+      { key: 'category', label: 'カテゴリ' },
+      { key: 'tags', label: 'タグ' },
+      { key: 'pinned', label: 'ピン留め' },
+      { key: 'color', label: '色' },
+      { key: 'effect', label: 'エフェクト' },
+      { key: 'createdAt', label: '作成日時' },
+      { key: 'updatedAt', label: '更新日時' },
+    ]
+    const termLabel = (key, memo = false) =>
+      (memo ? MEMO_TERMS : TERMS).find((term) => term.key === key)?.label ||
+      key ||
+      ''
+    const statusLabel = (key) =>
+      MEMO_STATUSES.find((status) => status.key === key)?.label || key || ''
+    const taskRow = (task) => ({
+      id: task.id,
+      kind: 'Task',
+      term: termLabel(task.term),
+      status: '',
+      title: task.title || '',
+      comment: task.comment || '',
+      done: task.done ? '完了' : '未完了',
+      alarm: alarmValue(task) || '',
+      subtasks: formatChecklist(task.subtasks),
+      createdAt: formatCsvDate(task.createdAt),
+      completedAt: formatCsvDate(task.completedAt),
+      protected: '',
+    })
+    const memoRow = (memo) => ({
+      id: memo.id,
+      kind: 'Task',
+      term: termLabel(memo.term, true),
+      status: statusLabel(memo.status),
+      title: richTextToPlain(memo.text),
+      comment: memo.comment || '',
+      done: memo.done ? '完了' : '未完了',
+      alarm: alarmValue(memo) || '',
+      subtasks: formatChecklist(memo.miniTasks),
+      createdAt: formatCsvDate(memo.createdAt),
+      completedAt: formatCsvDate(memo.archivedAt),
+      protected: memo.passwordHash ? 'あり' : '',
+    })
+    const activeTaskRows = [
+      ...tasks.filter((task) => !task.archived).map(taskRow),
+      ...memos.filter((memo) => !memo.archived).map(memoRow),
+    ]
+    const archiveRows = [
+      ...tasks.filter((task) => task.archived).map(taskRow),
+      ...memos.filter((memo) => memo.archived).map(memoRow),
+    ]
+    const knowledgeRows = knowledge.map((item) => ({
+      id: item.id,
+      title: item.title || '',
+      body: item.body || '',
+      category: item.category || '',
+      tags: (item.tags || []).join(', '),
+      pinned: item.pinned ? 'あり' : '',
+      color: item.color || '',
+      effect: item.effect || '',
+      createdAt: formatCsvDate(item.createdAt),
+      updatedAt: formatCsvDate(item.updatedAt),
+    }))
+    const exports = {
+      task: {
+        filename: 'task',
+        columns: taskColumns,
+        rows: activeTaskRows,
+      },
+      freespace: {
+        filename: 'freespace',
+        columns: knowledgeColumns,
+        rows: knowledgeRows,
+      },
+      archive: {
+        filename: 'completed',
+        columns: taskColumns,
+        rows: archiveRows,
+      },
+    }
+    const selected = exports[section]
+    if (!selected) return
+
+    downloadCsv(
+      `taskcanvas-${selected.filename}-${localDateStamp()}.csv`,
+      selected.columns,
+      selected.rows,
+    )
+  }
+
   // タスクカード／メモ行に渡すハンドラ一式（通常表示と拡大表示で共用）。
   const taskProps = {
     onToggleDone: toggleDone,
@@ -1638,6 +1819,7 @@ export default function App() {
           (view === 'board' && sidePane === 'free' ? (
             <KnowledgePanel
               onOpenDetail={(id) => openDetail('knowledge', id)}
+              onExport={() => exportSection('freespace')}
               {...knowledgeProps}
             />
           ) : (
@@ -1645,6 +1827,7 @@ export default function App() {
               memos={activeMemos}
               onAdd={addMemo}
               onOpenDetail={(id) => openDetail('memo', id)}
+              onExport={() => exportSection('task')}
               searchQuery={query}
               statusFilter={dashboardStatusFilter}
               termFilter={dashboardTermFilter}
@@ -1668,6 +1851,7 @@ export default function App() {
               isMemoUnlocked={isMemoUnlocked}
               onUnlockMemo={unlockMemo}
               searchQuery={query}
+              onExport={() => exportSection('archive')}
             />
           </div>
         )}

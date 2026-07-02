@@ -1416,7 +1416,7 @@ button.ghost.on {
 
 .memo-head {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: start;
   column-gap: 14px;
   row-gap: 8px;
@@ -1424,8 +1424,17 @@ button.ghost.on {
   border-bottom: 1px solid var(--line);
 }
 
+.memo-title-group {
+  display: contents;
+}
+
+.memo-title-group .section-export-button {
+  grid-column: 3;
+  grid-row: 1;
+  margin-left: auto;
+}
+
 .memo-head h2 {
-  grid-column: 1;
   position: relative;
   padding-left: 13px;
   font-size: 24px;
@@ -2386,6 +2395,42 @@ button.ghost.on {
   color: var(--muted);
   font-size: 12px;
   font-weight: 700;
+}
+
+.knowledge-head-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.section-export-button {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 750;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: 0.15s ease;
+}
+
+.section-export-button:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 13%, var(--surface));
+  transform: translateY(-1px);
+}
+
+.section-export-button:active {
+  transform: translateY(0);
 }
 
 .knowledge-tools {
@@ -4225,7 +4270,7 @@ button.ghost.on {
 
 .archive-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -4462,6 +4507,10 @@ button.ghost.on {
   margin: 12px 0 0;
   color: var(--faint);
   font-size: 13px;
+}
+
+.archive-head .section-export-button {
+  margin-left: auto;
 }
 
 /* ---------- レスポンシブ ----------

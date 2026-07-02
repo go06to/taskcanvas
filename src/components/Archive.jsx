@@ -121,6 +121,7 @@ export default function Archive({
   isMemoUnlocked = () => true,
   onUnlockMemo,
   searchQuery = '',
+  onExport,
 }) {
   const total = tasks.length + memos.length
   const searchNeedle = searchQuery.trim().toLowerCase()
@@ -159,6 +160,14 @@ export default function Archive({
         <p className="archive-sub">
           タスク {tasks.length} 件 ／ メモ {memos.length} 件
         </p>
+        <button
+          type="button"
+          className="section-export-button"
+          onClick={onExport}
+          title="完了フォルダをCSVファイルに書き出す"
+        >
+          <span aria-hidden="true">↓</span> CSV出力
+        </button>
       </div>
 
       {total === 0 && (

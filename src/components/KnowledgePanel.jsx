@@ -280,6 +280,7 @@ export default function KnowledgePanel({
   onTogglePin,
   onReorder,
   onOpenDetail,
+  onExport,
   searchQuery = '',
   onSearchQueryChange,
 }) {
@@ -340,7 +341,17 @@ export default function KnowledgePanel({
     <aside className="knowledge-panel" style={style} aria-label="Freespace">
       <div className="knowledge-head">
         <h2>Freespace</h2>
-        <span className="knowledge-count">{items.length} notes</span>
+        <div className="knowledge-head-meta">
+          <span className="knowledge-count">{items.length} notes</span>
+          <button
+            type="button"
+            className="section-export-button"
+            onClick={onExport}
+            title="FreespaceをCSVファイルに書き出す"
+          >
+            <span aria-hidden="true">↓</span> CSV出力
+          </button>
+        </div>
       </div>
 
       <div className="knowledge-tools">

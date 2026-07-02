@@ -705,6 +705,7 @@ export default function MemoPanel({
   onSetPassword,
   onClearPassword,
   onOpenDetail,
+  onExport,
   statusFilter = 'all',
   termFilter = 'all',
   onStatusFilterChange,
@@ -747,9 +748,17 @@ export default function MemoPanel({
   return (
     <aside className="memo-panel">
       <div className="memo-head">
-        <h2>
-          Task
-        </h2>
+        <div className="memo-title-group">
+          <h2>Task</h2>
+          <button
+            type="button"
+            className="section-export-button"
+            onClick={onExport}
+            title="TaskフォルダをCSVファイルに書き出す"
+          >
+            <span aria-hidden="true">↓</span> CSV出力
+          </button>
+        </div>
         <div className="memo-head-controls">
           <div className="memo-head-counts">
             <div className="memo-head-term-counts" aria-label="分類別の件数">
