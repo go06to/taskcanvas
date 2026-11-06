@@ -1,4 +1,4 @@
-import { MEMO_TERM_MAP, TERM_MAP } from '../constants'
+import { TERM_MAP } from '../constants'
 import { linkify } from '../linkify'
 
 const fmtDate = (iso) => {
@@ -29,21 +29,19 @@ const SubtaskSummary = ({ items = [] }) => {
 // 完了済みの内容を、変更せずに確認するための拡大表示。
 export function ArchiveDetail({ item, type }) {
   const isTask = type === 'task'
-  const term = isTask
-    ? TERM_MAP[item.term] || TERM_MAP.short
-    : MEMO_TERM_MAP[item.term] || MEMO_TERM_MAP.memo
+  // 分類は以前の短期/中期/長期ボードのタスクだけに表示する。
+  const term = isTask ? TERM_MAP[item.term] || TERM_MAP.short : null
   const subtasks = isTask ? item.subtasks || [] : item.miniTasks || []
   const completedAt = isTask ? item.completedAt : item.archivedAt
 
   return (
     <article className="archive-detail">
       <div className="archive-detail-head">
-        <span
-          className={`tag ${isTask ? '' : 'tag-memo'}`}
-          style={{ background: term.soft, color: term.color }}
-        >
-          {term.label}
-        </span>
+        {term && (
+          <span className="tag" style={{ background: term.soft, color: term.color }}>
+            {term.label}
+          </span>
+        )}
         <span className="archive-detail-status">完了済み</span>
       </div>
 
@@ -224,19 +222,12 @@ export default function Archive({
           <h3 className="archive-group">メモ</h3>
           <ul className="archive-list">
             {memos.map((memo) => {
-              const term = MEMO_TERM_MAP[memo.term] || MEMO_TERM_MAP.memo
               const locked = Boolean(memo.passwordHash) && !isMemoUnlocked(memo.id)
               return (
                 <li
                   key={memo.id}
                   className={`archive-item ${memoSearchHit(memo) ? 'is-search-hit' : ''}`}
                 >
-                  <span
-                    className="tag tag-memo"
-                    style={{ background: term.soft, color: term.color }}
-                  >
-                    {term.label}
-                  </span>
                   {locked ? (
                     <span className="archive-title archive-secret">
                       PWが必要なタスク

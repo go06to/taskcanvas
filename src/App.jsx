@@ -1,13 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
 import { doc, onSnapshot, setDoc, serverTimestamp } from 'firebase/firestore'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth'
-import { TERMS, MEMO_TERMS, STORAGE_KEY } from './constants'
-import { isDue } from './dateUtils'
+import { STORAGE_KEY } from './constants'
+import { isDue, dateAfterDays, fmtMD, WAITING_FOLLOW_UP_DAYS } from './dateUtils'
 import { db, auth, firebaseEnabled, googleProvider, USERS } from './firebase'
 import Archive, { ArchiveDetail } from './components/Archive'
-import MemoPanel, { MEMO_STATUSES, MemoRow } from './components/MemoPanel'
+import MemoPanel, {
+  MEMO_STATUSES,
+  MemoRow,
+  OVERDUE_FILTER,
+  MARK_FILTER,
+  matchesMemoFilter,
+  memoStatus,
+} from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
 import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
+import AddTaskDialog from './components/AddTaskDialog'
 
 // ログインユーザーごとの localStorage キャッシュキー（未ログイン/無効時は共通キー）。
 const localKey = (user) =>
@@ -19,6 +27,23 @@ const newId = () =>
 
 // 今日の日付を ISO 文字列で返す。
 const nowISO = () => new Date().toISOString()
+
+// 以前のマーカー機能で黄色くした文字。見つけたらタスクの MARK に移し替え、文字の黄色は消す。
+const TEXT_HIGHLIGHT_RE = /<mark\b|background-color:\s*(?:rgb\(\s*254,\s*240,\s*138\s*\)|#fef08a)/i
+
+const stripTextHighlight = (html = '') => {
+  if (typeof DOMParser === 'undefined') return html
+  const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html')
+  const root = doc.body.firstElementChild
+  if (!root) return html
+  root.querySelectorAll('mark, [style]').forEach((el) => {
+    const style = el.getAttribute('style') || ''
+    const yellow = el.tagName === 'MARK' || /254,\s*240,\s*138|fef08a/i.test(style)
+    if (!yellow) return
+    el.replaceWith(...el.childNodes)
+  })
+  return root.innerHTML
+}
 
 const localDateStamp = (date = new Date()) =>
   [
@@ -257,8 +282,22 @@ export default function App() {
   const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge'|'archive-task'|'archive-memo', id}
   const [quickAddText, setQuickAddText] = useState('')
   const [dashboardStatusFilter, setDashboardStatusFilter] = useState('all')
-  const [dashboardTermFilter, setDashboardTermFilter] = useState('all')
-  const [detailCreateRequest, setDetailCreateRequest] = useState(0)
+  const [quickAddNote, setQuickAddNote] = useState('')
+  const [quickAddContact, setQuickAddContact] = useState('')
+  const [quickAddMarked, setQuickAddMarked] = useState(false)
+  // タスク一覧の並び順：'manual'（ドラッグした順）か 'due'（期限が近い順）。
+  const [memoSort, setMemoSort] = useState(() => {
+    try {
+      return localStorage.getItem('tn-memo-sort') === 'due' ? 'due' : 'manual'
+    } catch {
+      return 'manual'
+    }
+  })
+  const [quickAddDue, setQuickAddDue] = useState('')
+  const [quickAddStatus, setQuickAddStatus] = useState('todo')
+  const [addDialogOpen, setAddDialogOpen] = useState(false)
+  const [addFocusRequest, setAddFocusRequest] = useState(0)
+  const [quickAddNotice, setQuickAddNotice] = useState('')
   const [sortKey, setSortKey] = useState(
     () => localStorage.getItem('tb-sort') || 'manual',
   )
@@ -388,6 +427,18 @@ export default function App() {
     return unsub
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // 以前のマーカーで黄色くした文字があるタスクは MARK 付きにして、文字の黄色は消す（1回だけ）。
+  useEffect(() => {
+    const convert = (memo) => {
+      if (!TEXT_HIGHLIGHT_RE.test(memo.text || '')) return memo
+      const text = stripTextHighlight(memo.text)
+      if (text === memo.text && memo.marked) return memo
+      return { ...memo, text, marked: true }
+    }
+    if (!memos.some((memo) => convert(memo) !== memo)) return
+    setMemos((prev) => prev.map(convert))
+  }, [memos])
 
   // 変更のたびにブラウザへ自動保存（アカウント別）＋クラウドへ反映。
   useEffect(() => {
@@ -748,9 +799,10 @@ export default function App() {
     return true
   }
 
-  const addMemo = (text, status = 'note', term, passwordPatch = {}) => {
+  // 分類は使わなくなったので term は保存しない（以前のタスクの値はそのまま残す）。
+  const addMemo = (text, status = 'todo', extraPatch = {}) => {
     const t = text.trim()
-    if (!t || !term) return null
+    if (!t) return null
     const id = newId()
     // 新しく作成したMEMOを一覧の先頭へ追加。
     setMemos((prev) => [
@@ -758,14 +810,16 @@ export default function App() {
         id,
         text: t,
         status,
-        term,
+        term: null,
         comment: '',
+        contact: '',
+        logs: [],
         miniTasks: [],
         alarmAt: null,
         passwordSalt: null,
         passwordHash: null,
         passwordProtectedAt: null,
-        ...passwordPatch,
+        ...extraPatch,
         createdAt: nowISO(),
         done: false,
         archived: false,
@@ -776,9 +830,9 @@ export default function App() {
     return id
   }
 
-  const addProtectedMemo = async (text, status = 'note', term) => {
+  const addProtectedMemo = async (text, status = 'todo', extra = {}) => {
     const t = text.trim()
-    if (!t || !term) return false
+    if (!t) return false
     const password = await askPassword({
       title: 'PW付きで作成',
       message: 'このタスクを開くためのPWを設定します。',
@@ -788,7 +842,7 @@ export default function App() {
     if (password === null) return false
     try {
       const patch = await makePasswordPatch(password)
-      const id = addMemo(t, status, term, patch)
+      const id = addMemo(t, status, { ...extra, ...patch })
       if (id) setUnlockedMemoIds((current) => new Set(current).add(id))
       return Boolean(id)
     } catch {
@@ -809,9 +863,50 @@ export default function App() {
   const editMemoComment = (id, comment) =>
     updateMemo(id, { comment, commentUpdatedAt: comment ? nowISO() : null })
 
-  const setMemoStatus = (id, status) => updateMemo(id, { status })
+  // 対応の記録（時系列）。kind: 'note'＝自分で書いた記録、'status'＝進み具合の変更。
+  const makeLog = (text, kind = 'note') => ({ id: newId(), at: nowISO(), text, kind })
 
-  const setMemoTerm = (id, term) => updateMemo(id, { term })
+  const addMemoLog = (id, text) => {
+    const value = String(text || '').trim()
+    if (!value || warnIfMemoPasswordRequired(id)) return
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === id ? { ...memo, logs: [...(memo.logs || []), makeLog(value)] } : memo,
+      ),
+    )
+  }
+
+  const deleteMemoLog = (id, logId) =>
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === id
+          ? { ...memo, logs: (memo.logs || []).filter((log) => log.id !== logId) }
+          : memo,
+      ),
+    )
+
+  const toggleMemoMark = (id) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo || !canReadMemo(memo)) return
+    updateMemo(id, { marked: !memo.marked })
+  }
+
+  const setMemoContact = (id, contact) => updateMemo(id, { contact: String(contact || '').trim() })
+
+  // 進み具合を変えたら記録に残す。返事待ちにして期限がなければ、確認日を自動で入れる。
+  const setMemoStatus = (id, status) => {
+    const memo = memos.find((item) => item.id === id)
+    if (!memo || !canReadMemo(memo) || memoStatus(memo) === status) return
+    const label = MEMO_STATUSES.find((item) => item.key === status)?.label || status
+    const needsFollowUp = status === 'waiting' && !memo.alarmAt && !memo.notifyDate
+    const followUp = needsFollowUp ? dateAfterDays(WAITING_FOLLOW_UP_DAYS) : null
+    updateMemo(id, {
+      status,
+      ...(followUp ? { alarmAt: followUp, notifyDate: null } : {}),
+      logs: [...(memo.logs || []), makeLog(`「${label}」にしました`, 'status')],
+    })
+    if (followUp) setQuickAddNotice(`返事の確認日を ${fmtMD(followUp)} に設定しました`)
+  }
 
   const setMemoAlarm = (id, alarmAt) =>
     updateMemo(id, { alarmAt, notifyDate: null })
@@ -1072,6 +1167,8 @@ export default function App() {
       searchText([
         stripHtml(m.text),
         m.comment,
+        m.contact,
+        ...(m.logs || []).map((log) => log.text),
         m.alarmAt,
         ...(m.miniTasks || []).flatMap((task) => [
           task.title,
@@ -1145,39 +1242,123 @@ export default function App() {
     .slice()
     .sort((a, b) => String(a.alarmAt).localeCompare(String(b.alarmAt)))
     .slice(0, 4)
-  const protectedMemoCount = activeMemos.filter((memo) => memo.passwordHash).length
   const openMemoCount = activeMemos.filter((memo) => !memo.done).length
-  const dashboardCounts = [
-    { label: 'Open', value: openMemoCount },
-    { label: 'Today', value: dueCount, alert: dueCount > 0 },
-    { label: 'PW', value: protectedMemoCount },
-    { label: 'Archive', value: archivedCount },
-  ]
-  const dashboardTermCounts = MEMO_TERMS.filter((term) => term.key !== 'memo').map(
-    (term) => ({
-      ...term,
-      count: activeMemos.filter((memo) => memo.term === term.key).length,
-    }),
-  )
+  const dashboardFilterActive = dashboardStatusFilter !== 'all'
+  const dashboardFilterOptions = [...MEMO_STATUSES, OVERDUE_FILTER, MARK_FILTER].map((option) => ({
+    ...option,
+    count: activeMemos.filter(
+      (memo) => !memo.done && matchesMemoFilter(memo, option.key),
+    ).length,
+  }))
 
-  const submitQuickAdd = async (protectedMode = false) => {
+  // 「＋ タスクを追加」の入力画面。閉じても書きかけは残す。
+  const addDraft = {
+    title: quickAddText,
+    note: quickAddNote,
+    contact: quickAddContact,
+    marked: quickAddMarked,
+    due: quickAddDue,
+    status: quickAddStatus,
+  }
+  const hasAddDraft = Boolean(
+    quickAddText.trim() || quickAddNote.trim() || quickAddContact.trim(),
+  )
+  const changeAddDraft = (field, value) => {
+    if (field === 'title') setQuickAddText(value)
+    if (field === 'note') setQuickAddNote(value)
+    if (field === 'contact') setQuickAddContact(value)
+    if (field === 'marked') setQuickAddMarked(Boolean(value))
+    if (field === 'due') setQuickAddDue(value)
+    if (field === 'status') setQuickAddStatus(value)
+  }
+  const openAddDialog = () => setAddDialogOpen(true)
+
+  // フリースペースのメモを参考に、タスクを作る（入力画面をメモ付きで開く）。
+  const createTaskFromKnowledge = (item) => {
+    const reference = [`参考：${item.title || '（タイトルなし）'}`, item.body || '']
+      .filter(Boolean)
+      .join('\n')
+    setQuickAddNote((current) => (current.trim() ? `${current}\n\n${reference}` : reference))
+    // 取引先・連絡先のメモなら、タイトルを「相手」にも入れる。
+    const labels = `${item.category || ''} ${(item.tags || []).join(' ')}`
+    if (!quickAddContact.trim() && /取引先|連絡先|お客/.test(labels)) {
+      setQuickAddContact((item.title || '').replace(/\s*(の)?連絡先\s*$/, ''))
+    }
+    setDetail(null)
+    setAddDialogOpen(true)
+    setAddFocusRequest((value) => value + 1)
+  }
+
+  // 電話などで受けた「やること」をすぐ書き留めるための追加処理。
+  // メモ（相手・連絡先など）と期限は任意で、入力があれば同時に登録する。
+  const submitQuickAdd = async ({ protectedMode = false, keepOpen = false } = {}) => {
     const title = quickAddText.trim()
     if (!title) return
     const html = escapeHtml(title)
+    const note = quickAddNote.trim()
+    const contact = quickAddContact.trim()
+    const status = quickAddStatus
+    const extra = {
+      ...(note ? { comment: note, commentUpdatedAt: nowISO() } : {}),
+      ...(contact ? { contact } : {}),
+      ...(quickAddMarked ? { marked: true } : {}),
+      ...(quickAddDue ? { alarmAt: quickAddDue } : {}),
+    }
     const added = protectedMode
-      ? await addProtectedMemo(html, 'action', activeTerm)
-      : addMemo(html, 'action', activeTerm) !== null
+      ? await addProtectedMemo(html, status, extra)
+      : addMemo(html, status, extra) !== null
     if (!added) return
     setQuickAddText('')
+    setQuickAddNote('')
+    setQuickAddContact('')
+    setQuickAddMarked(false)
+    setQuickAddDue('')
+    // 絞り込み中で追加したタスクが見えない場合は、絞り込みを解除して見えるようにする。
+    const visibleFilters = ['all', status, ...(quickAddMarked ? [MARK_FILTER.key] : [])]
+    if (!visibleFilters.includes(dashboardStatusFilter)) setDashboardStatusFilter('all')
     setView('board')
     setSidePane('memo')
+    setQuickAddNotice(`「${title.length > 20 ? `${title.slice(0, 20)}…` : title}」を追加しました`)
+    if (keepOpen) setAddFocusRequest((value) => value + 1)
+    else {
+      // 次に開いたときは「未対応」から始める。
+      setQuickAddStatus('todo')
+      setAddDialogOpen(false)
+    }
   }
 
-  const openDetailCreate = () => {
-    setView('board')
-    setSidePane('memo')
-    setDetailCreateRequest((value) => value + 1)
+  useEffect(() => {
+    if (!quickAddNotice) return
+    const timer = setTimeout(() => setQuickAddNotice(''), 3000)
+    return () => clearTimeout(timer)
+  }, [quickAddNotice])
+
+  const changeMemoSort = (mode) => {
+    setMemoSort(mode)
+    try {
+      localStorage.setItem('tn-memo-sort', mode)
+    } catch {
+      // 保存できない環境でも、その場の並び替えは効かせる。
+    }
   }
+
+  // どの画面でも N キーで「タスクを追加」を開く（文字入力中やほかの画面が開いているときは除く）。
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key !== 'n' && event.key !== 'N') return
+      if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return
+      const target = event.target
+      const typing =
+        target instanceof HTMLElement &&
+        (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName))
+      if (typing) return
+      if (document.querySelector('.detail-overlay, .lock-overlay, .add-dialog-overlay')) return
+      event.preventDefault()
+      setAddDialogOpen(true)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [])
 
   useEffect(() => {
     if (notificationPermission !== 'granted' || !dueAlarmSignature) return
@@ -1185,7 +1366,7 @@ export default function App() {
       const key = `taskcanvas-alarm:${item.id}:${item.alarmAt}`
       if (localStorage.getItem(key)) return
       try {
-        new Notification('TaskCanvas アラーム', {
+        new Notification('TaskNote アラーム', {
           body: item.text || '設定した時間になりました',
           icon: '/icon-192.png',
         })
@@ -1207,10 +1388,12 @@ export default function App() {
     const taskColumns = [
       { key: 'id', label: 'ID' },
       { key: 'kind', label: '種類' },
-      { key: 'term', label: '分類' },
       { key: 'status', label: 'ステータス' },
       { key: 'title', label: 'タイトル' },
+      { key: 'contact', label: '相手' },
+      { key: 'marked', label: 'MARK' },
       { key: 'comment', label: 'コメント' },
+      { key: 'logs', label: '対応の記録' },
       { key: 'done', label: '状態' },
       { key: 'alarm', label: 'アラーム' },
       { key: 'subtasks', label: 'サブタスク' },
@@ -1226,20 +1409,15 @@ export default function App() {
       { key: 'tags', label: 'タグ' },
       { key: 'pinned', label: 'ピン留め' },
       { key: 'color', label: '色' },
-      { key: 'effect', label: 'エフェクト' },
+      { key: 'effect', label: 'MARK' },
       { key: 'createdAt', label: '作成日時' },
       { key: 'updatedAt', label: '更新日時' },
     ]
-    const termLabel = (key, memo = false) =>
-      (memo ? MEMO_TERMS : TERMS).find((term) => term.key === key)?.label ||
-      key ||
-      ''
-    const statusLabel = (key) =>
-      MEMO_STATUSES.find((status) => status.key === key)?.label || key || ''
+    const statusLabel = (memo) =>
+      MEMO_STATUSES.find((status) => status.key === memoStatus(memo))?.label || ''
     const taskRow = (task) => ({
       id: task.id,
       kind: 'Task',
-      term: termLabel(task.term),
       status: '',
       title: task.title || '',
       comment: task.comment || '',
@@ -1253,10 +1431,14 @@ export default function App() {
     const memoRow = (memo) => ({
       id: memo.id,
       kind: 'Task',
-      term: termLabel(memo.term, true),
-      status: statusLabel(memo.status),
+      status: statusLabel(memo),
       title: richTextToPlain(memo.text),
+      contact: memo.contact || '',
+      marked: memo.marked ? 'あり' : '',
       comment: memo.comment || '',
+      logs: (memo.logs || [])
+        .map((log) => `${formatCsvDate(log.at)} ${log.text}`)
+        .join('\n'),
       done: memo.done ? '完了' : '未完了',
       alarm: alarmValue(memo) || '',
       subtasks: formatChecklist(memo.miniTasks),
@@ -1280,7 +1462,7 @@ export default function App() {
       tags: (item.tags || []).join(', '),
       pinned: item.pinned ? 'あり' : '',
       color: item.color || '',
-      effect: item.effect || '',
+      effect: item.effect && item.effect !== 'none' ? 'あり' : '',
       createdAt: formatCsvDate(item.createdAt),
       updatedAt: formatCsvDate(item.updatedAt),
     }))
@@ -1336,7 +1518,10 @@ export default function App() {
     onEdit: editMemo,
     onEditComment: editMemoComment,
     onSetStatus: setMemoStatus,
-    onSetTerm: setMemoTerm,
+    onSetContact: setMemoContact,
+    onToggleMark: toggleMemoMark,
+    onAddLog: addMemoLog,
+    onDeleteLog: deleteMemoLog,
     onSetAlarm: setMemoAlarm,
     onAddMiniTask: addMemoMiniTask,
     onToggleMiniTask: toggleMemoMiniTask,
@@ -1361,6 +1546,7 @@ export default function App() {
     onDelete: deleteKnowledge,
     onTogglePin: toggleKnowledgePin,
     onReorder: reorderKnowledge,
+    onMakeTask: createTaskFromKnowledge,
     searchQuery: query,
     onSearchQueryChange: setQuery,
   }
@@ -1370,7 +1556,6 @@ export default function App() {
     setView('board')
     setSidePane('memo')
     setDashboardStatusFilter('all')
-    setDashboardTermFilter('all')
   }
   const showKnowledgeSearchResults = () => {
     setView('board')
@@ -1421,8 +1606,8 @@ export default function App() {
     return (
       <div className="auth-screen">
         <div className="auth-card">
-          <img className="auth-mark" src="/auth-icon.png" alt="" width="56" height="56" />
-          <h1>TaskCanvas</h1>
+          <img className="auth-mark" src="/favicon.svg" alt="" width="56" height="56" />
+          <h1>TaskNote</h1>
           <p className="auth-desc">
             Google アカウントでログインしてください。
             <br />
@@ -1441,9 +1626,27 @@ export default function App() {
     <div className="app">
       <header className="header dashboard-sidebar">
         <div className="brand">
-          <img className="brand-mark" src="/auth-icon.png" alt="" />
-          <h1>TaskCanvas</h1>
+          <img className="brand-mark" src="/favicon.svg" alt="" />
+          <h1>TaskNote</h1>
         </div>
+
+        <button
+          type="button"
+          className="sidebar-add-button"
+          onClick={openAddDialog}
+          title="タスクを追加する画面を開く（N キー）"
+        >
+          <span className="sidebar-add-plus" aria-hidden="true">
+            ＋
+          </span>
+          <span className="sidebar-add-text">
+            タスクを追加
+            {hasAddDraft && <small>書きかけあり</small>}
+          </span>
+          <kbd className="sidebar-add-key" title="N キーでも開けます">
+            N
+          </kbd>
+        </button>
 
         <nav className="view-switch">
           <button
@@ -1453,7 +1656,10 @@ export default function App() {
               setSidePane('memo')
             }}
           >
-            Task
+            <span className="nav-label">
+              Task<small className="nav-sub">タスク一覧</small>
+            </span>
+            {openMemoCount > 0 && <span className="nav-count">{openMemoCount}</span>}
           </button>
           <button
             className={view === 'board' && sidePane === 'free' ? 'active' : ''}
@@ -1462,7 +1668,9 @@ export default function App() {
               setSidePane('free')
             }}
           >
-            Freespace
+            <span className="nav-label">
+              Freespace<small className="nav-sub">自由メモ・ナレッジ</small>
+            </span>
           </button>
           <button
             className={view === 'archive' ? 'active' : ''}
@@ -1470,7 +1678,9 @@ export default function App() {
               setView('archive')
             }}
           >
-            完了フォルダ
+            <span className="nav-label">
+              完了フォルダ<small className="nav-sub">終わったタスク</small>
+            </span>
             {archivedCount > 0 && (
               <span className="badge">{archivedCount}</span>
             )}
@@ -1583,74 +1793,15 @@ export default function App() {
           )}
         </div>
 
-        <div className="dashboard-stack" aria-label="Dashboard">
-          <section className="dashboard-block dashboard-quick">
-            <div className="dashboard-block-head">
-              <h2>Quick Add</h2>
-            </div>
-            <form
-              className="dash-quick-form"
-              onSubmit={(event) => {
-                event.preventDefault()
-                submitQuickAdd(false)
-              }}
-            >
-              <input
-                value={quickAddText}
-                placeholder="Taskを追加"
-                onChange={(event) => setQuickAddText(event.target.value)}
-              />
-              <div className="dash-quick-controls">
-                <select
-                  value={activeTerm}
-                  onChange={(event) => changeActiveTerm(event.target.value)}
-                  aria-label="追加先"
-                >
-                  {TERMS.map((term) => (
-                    <option key={term.key} value={term.key}>
-                      {term.label}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="dash-pw-add"
-                  disabled={!quickAddText.trim()}
-                  title="PW付きで追加"
-                  onClick={() => submitQuickAdd(true)}
-                >
-                  PW
-                </button>
-                <button
-                  type="submit"
-                  className="dash-add"
-                  disabled={!quickAddText.trim()}
-                  title="追加"
-                >
-                  +
-                </button>
+        <div className="dashboard-stack" aria-label="ダッシュボード">
+          {dashboardTodayItems.length > 0 && (
+            <section className="dashboard-block dashboard-today has-items">
+              <div className="dashboard-block-head">
+                <h2>期限が来たタスク</h2>
+                <span>{dashboardTodayItems.length}</span>
               </div>
-            </form>
-            <button
-              type="button"
-              className="dash-detail-create"
-              onClick={openDetailCreate}
-              title="本文や分類を選んで作成"
-            >
-              ＋ 詳細作成
-            </button>
-          </section>
-
-          <section className="dashboard-block dashboard-today">
-            <div className="dashboard-block-head">
-              <h2>Today</h2>
-              <span>{dashboardTodayItems.length}</span>
-            </div>
-            <div className="dash-today-list">
-              {dashboardTodayItems.length === 0 ? (
-                <p className="dash-empty">No alarms</p>
-              ) : (
-                dashboardTodayItems.map((item) => (
+              <div className="dash-today-list">
+                {dashboardTodayItems.map((item) => (
                   <button
                     key={`${item.id}:${item.alarmAt}`}
                     type="button"
@@ -1660,93 +1811,53 @@ export default function App() {
                     <span className="dash-date">{String(item.alarmAt).slice(5)}</span>
                     <span className="dash-title">{item.text || 'Task'}</span>
                   </button>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="dashboard-block dashboard-counts">
-            <div className="dashboard-block-head">
-              <h2>Counts</h2>
-            </div>
-            <div className="dash-count-grid">
-              {dashboardCounts.map((item) => (
-                <button
-                  key={item.label}
-                  type="button"
-                  className={`dash-count ${item.alert ? 'is-alert' : ''}`}
-                  onClick={() => {
-                    if (item.label === 'Archive') setView('archive')
-                    else {
-                      setView('board')
-                      setSidePane('memo')
-                    }
-                  }}
-                >
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </button>
-              ))}
-            </div>
-            <div className="dash-filter-row">
-              <select
-                className={`dash-status-filter ${
-                  dashboardStatusFilter === 'all' ? '' : `is-${dashboardStatusFilter}`
-                }`}
-                value={dashboardStatusFilter}
-                onChange={(event) => {
-                  setDashboardStatusFilter(event.target.value)
-                  setView('board')
-                  setSidePane('memo')
-                }}
-                aria-label="タスクをステータスで絞り込む"
-                title="ステータスで絞り込む"
-              >
-                <option value="all">ALL</option>
-                {MEMO_STATUSES.map((status) => (
-                  <option
-                    key={status.key}
-                    value={status.key}
-                    className={`is-${status.key}`}
-                    style={{ color: status.color, background: status.soft }}
-                  >
-                    {status.label}
-                  </option>
                 ))}
-              </select>
-              <button
-                type="button"
-                className="dash-reset"
-                disabled={dashboardStatusFilter === 'all' && dashboardTermFilter === 'all'}
-                title="分類とステータスの絞り込みをすべて解除"
-                onClick={() => {
-                  setDashboardStatusFilter('all')
-                  setDashboardTermFilter('all')
-                  setView('board')
-                  setSidePane('memo')
-                }}
-              >
-                全表示
-              </button>
-            </div>
-            <div className="dash-term-list">
-              {dashboardTermCounts.map((term) => (
+              </div>
+            </section>
+          )}
+
+          <section
+            className={`dashboard-block dashboard-filter ${dashboardFilterActive ? 'is-filtering' : ''}`}
+          >
+            <div className="dashboard-block-head">
+              <h2>絞り込み</h2>
+              {dashboardFilterActive && (
                 <button
-                  key={term.key}
                   type="button"
-                  className={`dash-term ${dashboardTermFilter === term.key ? 'is-active' : ''}`}
-                  style={{ '--term': term.color, '--term-soft': term.soft }}
+                  className="dash-reset"
+                  title="絞り込みを解除してすべて表示"
                   onClick={() => {
-                    setDashboardTermFilter((current) =>
-                      current === term.key ? 'all' : term.key,
-                    )
-                    changeActiveTerm(term.key)
+                    setDashboardStatusFilter('all')
                     setView('board')
                     setSidePane('memo')
                   }}
                 >
-                  <span>{term.label}</span>
-                  <strong>{term.count}</strong>
+                  ✕ 解除
+                </button>
+              )}
+            </div>
+            <div className="dash-term-list">
+              {dashboardFilterOptions.map((option) => (
+                <button
+                  key={option.key}
+                  type="button"
+                  className={`dash-term ${dashboardStatusFilter === option.key ? 'is-active' : ''} ${
+                    option.key === 'overdue' && option.count > 0 ? 'is-alert' : ''
+                  }`}
+                  style={{ '--term': option.color, '--term-soft': option.soft }}
+                  aria-pressed={dashboardStatusFilter === option.key}
+                  title={option.description}
+                  onClick={() => {
+                    setDashboardStatusFilter((current) =>
+                      current === option.key ? 'all' : option.key,
+                    )
+                    setView('board')
+                    setSidePane('memo')
+                  }}
+                >
+                  <span className="dash-term-dot" />
+                  <span className="dash-term-name">{option.label}</span>
+                  <strong>{option.count}</strong>
                 </button>
               ))}
             </div>
@@ -1825,15 +1936,14 @@ export default function App() {
           ) : (
             <MemoPanel
               memos={activeMemos}
-              onAdd={addMemo}
               onOpenDetail={(id) => openDetail('memo', id)}
               onExport={() => exportSection('task')}
+              onCreate={openAddDialog}
               searchQuery={query}
               statusFilter={dashboardStatusFilter}
-              termFilter={dashboardTermFilter}
+              sortMode={memoSort}
+              onSortModeChange={changeMemoSort}
               onStatusFilterChange={setDashboardStatusFilter}
-              onTermFilterChange={setDashboardTermFilter}
-              createRequest={detailCreateRequest}
               {...memoProps}
             />
           ))}
@@ -1901,6 +2011,19 @@ export default function App() {
               <ArchiveDetail item={detailArchiveMemo} type="memo" />
             )}
           </div>
+        </div>
+      )}
+      <AddTaskDialog
+        open={addDialogOpen}
+        draft={addDraft}
+        onChange={changeAddDraft}
+        onSubmit={submitQuickAdd}
+        onClose={() => setAddDialogOpen(false)}
+        focusRequest={addFocusRequest}
+      />
+      {quickAddNotice && (
+        <div className="add-toast" role="status">
+          ✓ {quickAddNotice}
         </div>
       )}
       <PasswordDialog

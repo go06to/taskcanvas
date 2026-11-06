@@ -1,12 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
-  <!-- ネオンチェックリング（Ocean：シアン→ブルー） -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <!-- TaskNote：メモ用紙＋チェック。ファビコン・左上のマーク・アプリアイコン共通 -->
   <defs>
-    <linearGradient id="r" x1="6" y1="6" x2="26" y2="26" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#166fbd"/>
-      <stop offset="1" stop-color="#2f9d78"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
     </linearGradient>
   </defs>
-  <rect x="1" y="1" width="30" height="30" rx="8" fill="#ffffff"/>
-  <circle cx="16" cy="16" r="9.4" fill="none" stroke="url(#r)" stroke-width="2.6"/>
-  <path d="M11 16.4 L14.6 20 L21.2 12.2" fill="none" stroke="#172033" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect width="64" height="64" rx="14" fill="url(#bg)"/>
+  <path d="M20 10.5H38.5L48.5 20.5V49.5A4 4 0 0 1 44.5 53.5H20A4 4 0 0 1 16 49.5V14.5A4 4 0 0 1 20 10.5Z" fill="#ffffff"/>
+  <path d="M38.5 10.5V17.5A3 3 0 0 0 41.5 20.5H48.5Z" fill="#c7d7fb"/>
+  <rect x="22" y="19.5" width="11" height="3.4" rx="1.7" fill="#c7d7fb"/>
+  <rect x="22" y="26.5" width="20" height="3.4" rx="1.7" fill="#c7d7fb"/>
+  <path d="M23.5 39.5L29.5 45.5L41.5 33.5" fill="none" stroke="#2563eb" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

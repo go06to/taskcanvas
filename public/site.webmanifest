@@ -1,10 +1,10 @@
 {
-  "name": "TaskCanvas",
-  "short_name": "TaskCanvas",
+  "name": "TaskNote",
+  "short_name": "TaskNote",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#f8fbff",
-  "theme_color": "#f8fbff",
+  "background_color": "#d6dade",
+  "theme_color": "#d6dade",
   "icons": [
     {
       "src": "/icon-192.png",

@@ -14,15 +14,10 @@ const COLORS = [
 ]
 
 const defaultColor = COLORS[0].value
-const EFFECTS = [
-  { key: 'none', label: 'エフェクトなし' },
-  { key: 'glow', label: '発光' },
-  { key: 'pulse', label: 'パルス' },
-  { key: 'float', label: '浮遊' },
-  { key: 'ripple', label: '波紋' },
-  { key: 'shine', label: '光沢' },
-]
-const defaultEffect = EFFECTS[0].key
+
+// エフェクトは「MARK」（★で目立たせる）だけ。以前の発光・パルスなどが付いていたメモも MARK として扱う。
+const HIGHLIGHT = 'highlight'
+const isHighlighted = (item) => Boolean(item?.effect && item.effect !== 'none')
 
 const LEGACY_COLORS = {
   '#fff4bf': '#fff8d9',
@@ -38,8 +33,6 @@ const noteColor = (color) =>
     : LEGACY_COLORS[color] || defaultColor
 const noteAccent = (color) =>
   COLORS.find((option) => option.value === noteColor(color))?.accent || COLORS[0].accent
-const noteEffect = (effect) =>
-  EFFECTS.some((option) => option.key === effect) ? effect : defaultEffect
 
 const fmtDate = (iso) => {
   if (!iso) return ''
@@ -58,18 +51,167 @@ const parseTags = (value) =>
 
 const tagsToText = (tags) => (Array.isArray(tags) ? tags.join(' ') : '')
 
+const searchHitOf = (item, searchQuery) => {
+  const needle = searchQuery.trim().toLowerCase()
+  if (!needle) return false
+  return [item.title, item.body, item.category, ...(item.tags || [])]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase()
+    .includes(needle)
+}
+
+function HighlightToggle({ on, onChange }) {
+  return (
+    <button
+      type="button"
+      className={`knowledge-highlight-toggle ${on ? 'on' : ''}`}
+      aria-pressed={on}
+      title={on ? 'MARK を外す' : 'MARK を付けて目立たせる'}
+      onClick={() => onChange(!on)}
+    >
+      {on ? '★ MARKED' : '☆ MARK'}
+    </button>
+  )
+}
+
+function ColorSwatches({ value, onChange, label }) {
+  return (
+    <div className="knowledge-swatches" aria-label={label}>
+      {COLORS.map((c) => (
+        <button
+          key={c.key}
+          type="button"
+          className={`knowledge-swatch ${noteColor(value) === c.value ? 'active' : ''}`}
+          style={{ '--swatch': c.value }}
+          onClick={() => onChange(c.value)}
+          title={c.label}
+          aria-label={`色：${c.label}`}
+        />
+      ))}
+    </div>
+  )
+}
+
+// 一覧に並べる「読む用」のカード。クリックで拡大表示（編集）を開く。
+function KnowledgeNote({ item, onTogglePin, onReorder, onOpenDetail, searchQuery }) {
+  const [dragOver, setDragOver] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const title = (item.title || '').trim()
+  const body = (item.body || '').trim()
+  const tags = Array.isArray(item.tags) ? item.tags : []
+  const open = () => onOpenDetail(item.id)
+
+  return (
+    <article
+      className={`knowledge-card knowledge-note ${item.pinned ? 'is-pinned' : ''} ${
+        isHighlighted(item) ? 'is-highlight' : ''
+      } ${searchHitOf(item, searchQuery) ? 'is-search-hit' : ''} ${
+        dragOver ? 'is-drag-over' : ''
+      } ${dragging ? 'is-dragging' : ''}`}
+      style={{
+        '--note': noteColor(item.color),
+        '--note-accent': noteAccent(item.color),
+      }}
+      role="button"
+      tabIndex={0}
+      title="クリックで開いて編集"
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+      onDragOver={(e) => {
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'move'
+        setDragOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false)
+      }}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragOver(false)
+        const id =
+          e.dataTransfer.getData('application/x-taskcanvas-knowledge') ||
+          e.dataTransfer.getData('text/plain')
+        if (id && id !== item.id) onReorder(id, item.id)
+      }}
+    >
+      <div className="knowledge-note-head">
+        <span
+          className="knowledge-drag"
+          title="ドラッグで並び替え"
+          aria-label="ドラッグで並び替え"
+          draggable
+          onClick={(e) => e.stopPropagation()}
+          onDragStart={(e) => {
+            setDragging(true)
+            e.dataTransfer.setData('application/x-taskcanvas-knowledge', item.id)
+            e.dataTransfer.setData('text/plain', item.id)
+            e.dataTransfer.effectAllowed = 'move'
+          }}
+          onDragEnd={() => {
+            setDragging(false)
+            setDragOver(false)
+          }}
+        >
+          ⠿
+        </span>
+        <h3 className={`knowledge-note-title ${title ? '' : 'is-untitled'}`}>
+          {isHighlighted(item) && (
+            <span className="knowledge-note-star" aria-label="MARK 付き">
+              ★
+            </span>
+          )}
+          {title || '（タイトルなし）'}
+        </h3>
+        <button
+          type="button"
+          className={`knowledge-pin ${item.pinned ? 'on' : ''}`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onTogglePin(item.id)
+          }}
+          title={item.pinned ? 'ピン留めを解除' : '一覧の先頭に固定する'}
+          aria-pressed={Boolean(item.pinned)}
+        >
+          📌
+        </button>
+      </div>
+
+      {body ? (
+        <p className="knowledge-note-body">{body}</p>
+      ) : (
+        <p className="knowledge-note-body is-empty">本文なし</p>
+      )}
+
+      <div className="knowledge-note-foot">
+        {item.category && <span className="knowledge-chip is-category">{item.category}</span>}
+        {tags.map((tag) => (
+          <span key={tag} className="knowledge-chip">
+            #{tag}
+          </span>
+        ))}
+        <span className="knowledge-date">{fmtDate(item.updatedAt || item.createdAt)}</span>
+      </div>
+    </article>
+  )
+}
+
+// 拡大表示（編集用）。large のときに使う。
 export function KnowledgeCard({
   item,
   large = false,
   onUpdate,
   onDelete,
   onTogglePin,
-  onReorder,
-  onOpenDetail,
+  onMakeTask,
   searchQuery = '',
 }) {
-  const [dragOver, setDragOver] = useState(false)
-  const [dragging, setDragging] = useState(false)
   const [draft, setDraft] = useState({
     title: item.title || '',
     body: item.body || '',
@@ -85,17 +227,6 @@ export function KnowledgeCard({
       tags: tagsToText(item.tags),
     })
   }, [item.id, item.title, item.body, item.category, item.tags])
-  const searchNeedle = searchQuery.trim().toLowerCase()
-  const searchHaystack = [
-    item.title,
-    item.body,
-    item.category,
-    ...(item.tags || []),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
-  const searchHit = Boolean(searchNeedle && searchHaystack.includes(searchNeedle))
 
   const save = () => {
     const patch = {
@@ -116,65 +247,15 @@ export function KnowledgeCard({
 
   return (
     <article
-      className={`knowledge-card ${item.pinned ? 'is-pinned' : ''} ${
-        large ? 'large' : ''
-      } ${searchHit ? 'is-search-hit' : ''} ${dragOver ? 'is-drag-over' : ''} ${
-        dragging ? 'is-dragging' : ''
-      } effect-${noteEffect(item.effect)}`}
+      className={`knowledge-card ${large ? 'large' : ''} ${item.pinned ? 'is-pinned' : ''} ${
+        isHighlighted(item) ? 'is-highlight' : ''
+      } ${searchHitOf(item, searchQuery) ? 'is-search-hit' : ''}`}
       style={{
         '--note': noteColor(item.color),
         '--note-accent': noteAccent(item.color),
       }}
-      onDragOver={
-        large
-          ? undefined
-          : (e) => {
-              e.preventDefault()
-              e.dataTransfer.dropEffect = 'move'
-              setDragOver(true)
-            }
-      }
-      onDragLeave={
-        large
-          ? undefined
-          : (e) => {
-              if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false)
-            }
-      }
-      onDrop={
-        large
-          ? undefined
-          : (e) => {
-              e.preventDefault()
-              setDragOver(false)
-              const id =
-                e.dataTransfer.getData('application/x-taskcanvas-knowledge') ||
-                e.dataTransfer.getData('text/plain')
-              if (id && id !== item.id) onReorder(id, item.id)
-            }
-      }
     >
       <div className="knowledge-card-top">
-        {!large && (
-          <span
-            className="knowledge-drag"
-            title="ドラッグでカードを並び替え"
-            aria-label="ドラッグでカードを並び替え"
-            draggable
-            onDragStart={(e) => {
-              setDragging(true)
-              e.dataTransfer.setData('application/x-taskcanvas-knowledge', item.id)
-              e.dataTransfer.setData('text/plain', item.id)
-              e.dataTransfer.effectAllowed = 'move'
-            }}
-            onDragEnd={() => {
-              setDragging(false)
-              setDragOver(false)
-            }}
-          >
-            ⠿
-          </span>
-        )}
         <input
           className="knowledge-title-input"
           value={draft.title}
@@ -182,24 +263,14 @@ export function KnowledgeCard({
           onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))}
           onBlur={save}
         />
-        {!large && (
-          <button
-            type="button"
-            className="knowledge-expand"
-            onClick={() => onOpenDetail(item.id)}
-            title="拡大表示"
-            aria-label="拡大表示"
-          >
-            ⤢
-          </button>
-        )}
         <button
           type="button"
           className={`knowledge-pin ${item.pinned ? 'on' : ''}`}
           onClick={() => onTogglePin(item.id)}
-          title={item.pinned ? 'ピン留めを解除' : 'ピン留め'}
+          title={item.pinned ? 'ピン留めを解除' : '一覧の先頭に固定する'}
+          aria-pressed={Boolean(item.pinned)}
         >
-          PIN
+          📌
         </button>
       </div>
 
@@ -213,58 +284,59 @@ export function KnowledgeCard({
       />
 
       <div className="knowledge-meta-row">
-        <input
-          className="knowledge-meta-input"
-          value={draft.category}
-          placeholder="分類"
-          onChange={(e) => setDraft((v) => ({ ...v, category: e.target.value }))}
-          onBlur={save}
-        />
-        <input
-          className="knowledge-meta-input"
-          value={draft.tags}
-          placeholder="タグ"
-          onChange={(e) => setDraft((v) => ({ ...v, tags: e.target.value }))}
-          onBlur={save}
-        />
+        <label className="knowledge-meta-field">
+          <span>分類</span>
+          <input
+            className="knowledge-meta-input"
+            value={draft.category}
+            placeholder="例）取引先・手順"
+            onChange={(e) => setDraft((v) => ({ ...v, category: e.target.value }))}
+            onBlur={save}
+          />
+        </label>
+        <label className="knowledge-meta-field">
+          <span>タグ</span>
+          <input
+            className="knowledge-meta-input"
+            value={draft.tags}
+            placeholder="スペース区切りで複数"
+            onChange={(e) => setDraft((v) => ({ ...v, tags: e.target.value }))}
+            onBlur={save}
+          />
+        </label>
       </div>
 
       <div className="knowledge-card-actions">
-        <div className="knowledge-swatches" aria-label="card color">
-          {COLORS.map((c) => (
-            <button
-              key={c.key}
-              type="button"
-              className={`knowledge-swatch ${
-                noteColor(item.color) === c.value ? 'active' : ''
-              }`}
-              style={{ '--swatch': c.value }}
-              onClick={() => onUpdate(item.id, { color: c.value })}
-              title={c.label}
-            />
-          ))}
-        </div>
-        <select
-          className="knowledge-effect-select"
-          value={noteEffect(item.effect)}
-          onChange={(e) => onUpdate(item.id, { effect: e.target.value })}
-          aria-label="カードエフェクト"
-          title="カードエフェクトを選択"
-        >
-          {EFFECTS.map((effect) => (
-            <option key={effect.key} value={effect.key}>
-              {effect.label}
-            </option>
-          ))}
-        </select>
-        <span className="knowledge-date">{fmtDate(item.updatedAt || item.createdAt)}</span>
+        <ColorSwatches
+          value={item.color}
+          label="カードの色"
+          onChange={(color) => onUpdate(item.id, { color })}
+        />
+        <HighlightToggle
+          on={isHighlighted(item)}
+          onChange={(on) => onUpdate(item.id, { effect: on ? HIGHLIGHT : 'none' })}
+        />
+        <span className="knowledge-date">更新 {fmtDate(item.updatedAt || item.createdAt)}</span>
+        {onMakeTask && (
+          <button
+            type="button"
+            className="knowledge-make-task"
+            title="このメモを参考にタスクを作る（入力画面が開きます）"
+            onClick={() => {
+              save()
+              onMakeTask({ ...item, ...draft, tags: parseTags(draft.tags) })
+            }}
+          >
+            ＋ タスクにする
+          </button>
+        )}
         <button
           type="button"
           className="knowledge-delete"
           onClick={() => onDelete(item.id)}
-          title="削除"
+          title="このメモを削除"
         >
-          ×
+          削除
         </button>
       </div>
     </article>
@@ -275,8 +347,6 @@ export default function KnowledgePanel({
   items,
   style,
   onAdd,
-  onUpdate,
-  onDelete,
   onTogglePin,
   onReorder,
   onOpenDetail,
@@ -286,24 +356,27 @@ export default function KnowledgePanel({
 }) {
   const [query, setQuery] = useState('')
   const displayedQuery = onSearchQueryChange ? searchQuery : query
-  const [draft, setDraft] = useState({
+  const emptyDraft = {
     title: '',
     body: '',
     category: '',
     tags: '',
     color: defaultColor,
-    effect: defaultEffect,
-  })
+    effect: 'none',
+  }
+  const [draft, setDraft] = useState(emptyDraft)
 
+  // ピン留めしたメモを先頭に。それ以外は並び替えた順のまま。
   const filtered = useMemo(() => {
     const q = displayedQuery.trim().toLowerCase()
-    return items.filter((item) => {
+    const hits = items.filter((item) => {
       if (!q) return true
       return [item.title, item.body, item.category, ...(item.tags || [])]
         .join(' ')
         .toLowerCase()
         .includes(q)
     })
+    return [...hits.filter((item) => item.pinned), ...hits.filter((item) => !item.pinned)]
   }, [items, displayedQuery])
 
   const updateSearch = (value) => {
@@ -327,14 +400,7 @@ export default function KnowledgePanel({
       color: draft.color,
       effect: draft.effect,
     })
-    setDraft({
-      title: '',
-      body: '',
-      category: '',
-      tags: '',
-      color: defaultColor,
-      effect: defaultEffect,
-    })
+    setDraft(emptyDraft)
   }
 
   return (
@@ -342,7 +408,7 @@ export default function KnowledgePanel({
       <div className="knowledge-head">
         <h2>Freespace</h2>
         <div className="knowledge-head-meta">
-          <span className="knowledge-count">{items.length} notes</span>
+          <span className="knowledge-count">{items.length}件</span>
           <button
             type="button"
             className="section-export-button"
@@ -359,7 +425,7 @@ export default function KnowledgePanel({
           <span>⌕</span>
           <input
             value={displayedQuery}
-            placeholder="ナレッジ検索"
+            placeholder="メモを検索（タイトル・本文・分類・タグ）"
             onChange={(e) => updateSearch(e.target.value)}
           />
           {displayedQuery && (
@@ -371,7 +437,7 @@ export default function KnowledgePanel({
       </div>
 
       <div
-        className={`knowledge-composer effect-${draft.effect}`}
+        className={`knowledge-composer ${draft.effect !== 'none' ? 'is-highlight' : ''}`}
         style={{
           '--note': draft.color,
           '--note-accent': noteAccent(draft.color),
@@ -380,13 +446,13 @@ export default function KnowledgePanel({
         <input
           className="knowledge-compose-title"
           value={draft.title}
-          placeholder="タイトル"
+          placeholder="タイトル（例：○○介護センター 連絡先）"
           onChange={(e) => setDraft((v) => ({ ...v, title: e.target.value }))}
         />
         <textarea
           className="knowledge-compose-body"
           value={draft.body}
-          placeholder="ナレッジを書く"
+          placeholder="本文を書く"
           rows={3}
           onChange={(e) => setDraft((v) => ({ ...v, body: e.target.value }))}
         />
@@ -402,30 +468,15 @@ export default function KnowledgePanel({
             onChange={(e) => setDraft((v) => ({ ...v, tags: e.target.value }))}
           />
           <div className="knowledge-compose-options">
-            <div className="knowledge-swatches" aria-label="new card color">
-              {COLORS.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={`knowledge-swatch ${draft.color === c.value ? 'active' : ''}`}
-                  style={{ '--swatch': c.value }}
-                  onClick={() => setDraft((v) => ({ ...v, color: c.value }))}
-                  title={c.label}
-                />
-              ))}
-            </div>
-            <select
-              className="knowledge-effect-select"
-              value={draft.effect}
-              onChange={(e) => setDraft((v) => ({ ...v, effect: e.target.value }))}
-              aria-label="新しいカードのエフェクト"
-            >
-              {EFFECTS.map((effect) => (
-                <option key={effect.key} value={effect.key}>
-                  {effect.label}
-                </option>
-              ))}
-            </select>
+            <ColorSwatches
+              value={draft.color}
+              label="新しいメモの色"
+              onChange={(color) => setDraft((v) => ({ ...v, color }))}
+            />
+            <HighlightToggle
+              on={draft.effect !== 'none'}
+              onChange={(on) => setDraft((v) => ({ ...v, effect: on ? HIGHLIGHT : 'none' }))}
+            />
           </div>
           <button type="button" className="knowledge-add" onClick={add} disabled={!canAdd}>
             追加
@@ -435,11 +486,9 @@ export default function KnowledgePanel({
 
       <div className="knowledge-grid">
         {filtered.map((item) => (
-          <KnowledgeCard
+          <KnowledgeNote
             key={item.id}
             item={item}
-            onUpdate={onUpdate}
-            onDelete={onDelete}
             onTogglePin={onTogglePin}
             onReorder={onReorder}
             onOpenDetail={onOpenDetail}
@@ -448,7 +497,7 @@ export default function KnowledgePanel({
         ))}
         {filtered.length === 0 && (
           <p className="knowledge-empty">
-            {displayedQuery ? '一致するナレッジはありません' : 'ナレッジはありません'}
+            {displayedQuery ? '一致するメモはありません' : 'メモはありません'}
           </p>
         )}
       </div>
