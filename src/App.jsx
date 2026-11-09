@@ -16,6 +16,8 @@ import MemoPanel, {
 import TaskCard from './components/TaskCard'
 import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
 import AddTaskDialog from './components/AddTaskDialog'
+import MailInboxPanel from './components/MailInboxPanel'
+import { useMailInbox, MAIL_PRIORITY_MAP } from './mailInbox'
 
 // ログインユーザーごとの localStorage キャッシュキー（未ログイン/無効時は共通キー）。
 const localKey = (user) =>
@@ -277,7 +279,9 @@ export default function App() {
     localOnly ? loadLocal(STORAGE_KEY).knowledge : [],
   )
   const [view, setView] = useState('board') // 'board' | 'archive'
-  const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free'
+  const [sidePane, setSidePane] = useState('memo') // 'memo' | 'free' | 'mail'
+  // メール受信箱（Claude が書き出すファイルを読むだけ。クラウドには載せない）。
+  const mailInbox = useMailInbox()
   const [query, setQuery] = useState('') // 検索キーワード
   const [detail, setDetail] = useState(null) // 拡大表示 {type:'task'|'memo'|'knowledge'|'archive-task'|'archive-memo', id}
   const [quickAddText, setQuickAddText] = useState('')
@@ -1327,6 +1331,89 @@ export default function App() {
     }
   }
 
+  // メール受信箱の項目を、ふだんの Task（未対応）として追加する。
+  // 相手・期限・メモを引き継ぎ、優先度「高」は MARK を付けて目立たせる。
+  const adoptMailItem = (item) => {
+    const title = item.title.trim()
+    if (!title) return
+    const priority = MAIL_PRIORITY_MAP[item.priority]
+    const received = item.receivedAt ? new Date(item.receivedAt) : null
+    const receivedText =
+      received && !Number.isNaN(received.getTime())
+        ? `${received.getMonth() + 1}/${received.getDate()} ${received.getHours()}:${String(
+            received.getMinutes(),
+          ).padStart(2, '0')}`
+        : ''
+    const note = [
+      item.summary,
+      item.source === 'mail'
+        ? ['📧 メールから', receivedText, item.subject ? `件名：${item.subject}` : '']
+            .filter(Boolean)
+            .join(' ')
+        : '',
+      priority ? `優先度：${priority.label}${item.reason ? `（${item.reason}）` : ''}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n')
+    const contact = [item.from, item.fromAddress ? `<${item.fromAddress}>` : '']
+      .filter(Boolean)
+      .join(' ')
+    addMemo(escapeHtml(title), 'todo', {
+      ...(note ? { comment: note, commentUpdatedAt: nowISO() } : {}),
+      ...(contact ? { contact } : {}),
+      ...(item.priority === 3 ? { marked: true } : {}),
+      ...(item.due ? { alarmAt: item.due } : {}),
+      mailItemId: item.id,
+    })
+    setQuickAddNotice(
+      `「${title.length > 20 ? `${title.slice(0, 20)}…` : title}」をTaskに追加しました`,
+    )
+  }
+
+  // Outlook で既読（または削除）になったメールから作った Task を、完了フォルダへ移す。
+  // 一度移したものは覚えておき、完了フォルダから戻した Task をまた移すことはしない。
+  // メールから作った Task がまだ読み込まれていない（クラウド同期前など）ときは、次の機会に回す。
+  const { pendingClosed, markAutoClosed } = mailInbox
+  useEffect(() => {
+    if (!pendingClosed.length) return
+    const reasons = new Map(pendingClosed.map((c) => [c.id, c.reason]))
+    const targets = memos.filter((m) => m.mailItemId && reasons.has(m.mailItemId))
+    if (!targets.length) return
+    const open = targets.filter((m) => !m.archived)
+    if (open.length) {
+      const at = nowISO()
+      const openIds = new Set(open.map((m) => m.id))
+      setMemos((prev) =>
+        prev.map((m) =>
+          openIds.has(m.id)
+            ? {
+                ...m,
+                archived: true,
+                done: true,
+                archivedAt: at,
+                logs: [
+                  ...(m.logs || []),
+                  makeLog(
+                    reasons.get(m.mailItemId) === 'deleted'
+                      ? 'Outlookでメールが削除されたので完了にしました'
+                      : 'Outlookでメールが既読になったので完了にしました',
+                    'status',
+                  ),
+                ],
+              }
+            : m,
+        ),
+      )
+      const first = richTextToPlain(open[0].text || '')
+      setQuickAddNotice(
+        `メールが既読になったので「${first.length > 16 ? `${first.slice(0, 16)}…` : first}」${
+          open.length > 1 ? `ほか${open.length - 1}件` : ''
+        }を完了にしました`,
+      )
+    }
+    markAutoClosed([...new Set(targets.map((m) => m.mailItemId))])
+  }, [pendingClosed, memos, markAutoClosed])
+
   useEffect(() => {
     if (!quickAddNotice) return
     const timer = setTimeout(() => setQuickAddNotice(''), 3000)
@@ -1673,6 +1760,20 @@ export default function App() {
             </span>
           </button>
           <button
+            className={view === 'board' && sidePane === 'mail' ? 'active' : ''}
+            onClick={() => {
+              setView('board')
+              setSidePane('mail')
+            }}
+          >
+            <span className="nav-label">
+              Mail<small className="nav-sub">メール受信箱</small>
+            </span>
+            {mailInbox.openItems.length > 0 && (
+              <span className="nav-count">{mailInbox.openItems.length}</span>
+            )}
+          </button>
+          <button
             className={view === 'archive' ? 'active' : ''}
             onClick={() => {
               setView('archive')
@@ -1926,7 +2027,11 @@ export default function App() {
       <div
         className={`layout ${view === 'board' ? 'is-single-pane' : 'mobile-board'}`}
       >
+        {view === 'board' && sidePane === 'mail' && (
+          <MailInboxPanel inbox={mailInbox} onAdopt={adoptMailItem} />
+        )}
         {view !== 'archive' &&
+          !(view === 'board' && sidePane === 'mail') &&
           (view === 'board' && sidePane === 'free' ? (
             <KnowledgePanel
               onOpenDetail={(id) => openDetail('knowledge', id)}
