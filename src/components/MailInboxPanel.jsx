@@ -5,6 +5,7 @@ import {
   MAIL_PRIORITY_MAP,
   fileApiSupported,
   originText,
+  saveFileApiSupported,
 } from '../mailInbox'
 
 // メール受信箱。Claude が Outlook・楽楽自動応対から拾った「対応が要りそうなメール」と、手で入れた項目を並べる。
@@ -219,6 +220,12 @@ export default function MailInboxPanel({ inbox, onAdopt }) {
     markHandled,
     restore,
     addManual,
+    handledFileStatus,
+    handledFileError,
+    handledFileName,
+    pickHandledFile,
+    allowHandledFile,
+    forgetHandledFile,
   } = inbox
 
   const counts = MAIL_PRIORITIES.map((p) => ({
@@ -314,6 +321,49 @@ export default function MailInboxPanel({ inbox, onAdopt }) {
           }}
         />
       </div>
+
+      {/* 処理済みの印をファイルにも書き出す（Claude のステータスラインの「やること」件数から外すため） */}
+      {saveFileApiSupported && (
+        <div className="mail-file-line">
+          {handledFileStatus === 'ok' && (
+            <span>
+              処理済みの保存先：{handledFileName}
+              <span className="mail-file-tools">
+                <button type="button" className="mail-link" onClick={pickHandledFile}>
+                  選び直す
+                </button>
+                <button type="button" className="mail-link" onClick={forgetHandledFile}>
+                  保存をやめる
+                </button>
+              </span>
+            </span>
+          )}
+          {handledFileStatus === 'need-permission' && (
+            <span className="mail-file-warn">
+              処理済みファイルへの書き込みの許可が切れています。
+              <button type="button" className="mail-link" onClick={allowHandledFile}>
+                クリックして許可
+              </button>
+            </span>
+          )}
+          {handledFileStatus === 'error' && (
+            <span className="mail-file-error">
+              {handledFileError}
+              <button type="button" className="mail-link" onClick={pickHandledFile}>
+                選び直す
+              </button>
+            </span>
+          )}
+          {handledFileStatus === 'none' && (
+            <span>
+              処理済みをファイルにも保存すると、Claude の「やること」の件数から外れます。
+              <button type="button" className="mail-link" onClick={pickHandledFile}>
+                保存先を選ぶ（{'処理済み.json'}）
+              </button>
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="mail-scroll">
         {showManual && (

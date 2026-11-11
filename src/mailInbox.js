@@ -19,6 +19,10 @@ const AUTO_CLOSED_KEY = 'tn-mail-auto-closed-v1'
 const DB_NAME = 'tasknote-mail'
 const DB_STORE = 'handles'
 const HANDLE_KEY = 'inbox-file'
+// 処理済みの印を書き出すファイル（メール受信箱.json と同じフォルダの 処理済み.json）。
+// ブラウザの外（Claude のステータスラインの件数など）から、処理済みかどうかを見られるようにする。
+const HANDLED_FILE_KEY = 'handled-file'
+const HANDLED_FILE_NAME = '処理済み.json'
 // 処理済みの印は60日で忘れる（ファイル側も古いメールは消していく）。
 const HANDLED_KEEP_MS = 60 * 24 * 60 * 60 * 1000
 const AUTO_RELOAD_MS = 60 * 1000
@@ -61,6 +65,9 @@ export const originText = (item) => {
 export const fileApiSupported =
   typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function'
 
+export const saveFileApiSupported =
+  typeof window !== 'undefined' && typeof window.showSaveFilePicker === 'function'
+
 const readJson = (key, fallback) => {
   try {
     const raw = localStorage.getItem(key)
@@ -101,12 +108,30 @@ const dbRequest = async (mode, run) => {
   }
 }
 
-const loadHandle = () =>
-  dbRequest('readonly', (store) => store.get(HANDLE_KEY)).catch(() => null)
-const saveHandle = (handle) =>
-  dbRequest('readwrite', (store) => store.put(handle, HANDLE_KEY)).catch(() => null)
-const clearHandle = () =>
-  dbRequest('readwrite', (store) => store.delete(HANDLE_KEY)).catch(() => null)
+const loadHandle = (key = HANDLE_KEY) =>
+  dbRequest('readonly', (store) => store.get(key)).catch(() => null)
+const saveHandle = (handle, key = HANDLE_KEY) =>
+  dbRequest('readwrite', (store) => store.put(handle, key)).catch(() => null)
+const clearHandle = (key = HANDLE_KEY) =>
+  dbRequest('readwrite', (store) => store.delete(key)).catch(() => null)
+
+// 処理済みの印を、ファイルにまるごと書き出す。
+const writeHandledFile = async (handle, handled) => {
+  const writable = await handle.createWritable()
+  await writable.write(
+    JSON.stringify(
+      {
+        version: 1,
+        updatedAt: new Date().toISOString(),
+        note: 'TaskNote の Mail で「処理済み」にしたもの。TaskNote が書き出す（ほかからは読むだけ）。',
+        handled,
+      },
+      null,
+      2,
+    ),
+  )
+  await writable.close()
+}
 
 const text = (value) => (value == null ? '' : String(value).trim())
 
@@ -198,6 +223,36 @@ export function useMailInbox() {
   useEffect(() => writeJson(HANDLED_KEY, handled), [handled])
   useEffect(() => writeJson(MANUAL_KEY, manualItems), [manualItems])
   useEffect(() => writeJson(AUTO_CLOSED_KEY, autoClosed), [autoClosed])
+
+  // 処理済みの印の書き出し先。'none'（未設定）| 'need-permission'（クリックで再許可）| 'ok' | 'error'
+  const [handledHandle, setHandledHandle] = useState(null)
+  const [handledFileStatus, setHandledFileStatus] = useState('none')
+  const [handledFileError, setHandledFileError] = useState('')
+
+  // 開いたとき：前に選んだ書き出し先があり、書く許可が残っていればそのまま使う。
+  useEffect(() => {
+    if (!saveFileApiSupported) return
+    let cancelled = false
+    loadHandle(HANDLED_FILE_KEY).then(async (saved) => {
+      if (cancelled || !saved) return
+      setHandledHandle(saved)
+      const permission = await saved.queryPermission?.({ mode: 'readwrite' })
+      if (cancelled) return
+      setHandledFileStatus(permission === 'granted' ? 'ok' : 'need-permission')
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // 印が変わるたびに書き出す（書ける状態の間だけ）。
+  useEffect(() => {
+    if (!handledHandle || handledFileStatus !== 'ok') return
+    writeHandledFile(handledHandle, handled).catch((error) => {
+      setHandledFileStatus(error?.name === 'NotAllowedError' ? 'need-permission' : 'error')
+      setHandledFileError(error?.message || '処理済みファイルに書き込めませんでした')
+    })
+  }, [handled, handledHandle, handledFileStatus])
 
   const applyText = useCallback((raw, name) => {
     try {
@@ -330,6 +385,50 @@ export function useMailInbox() {
     setFileError('')
   }, [])
 
+  // 処理済みの書き出し先を選ぶ（クリックから呼ぶ）。メール受信箱.json と同じフォルダから始める。
+  const pickHandledFile = useCallback(async () => {
+    if (!saveFileApiSupported) return false
+    try {
+      const picked = await window.showSaveFilePicker({
+        suggestedName: HANDLED_FILE_NAME,
+        ...(handle ? { startIn: handle } : {}),
+        types: [{ description: '処理済みの印（JSON）', accept: { 'application/json': ['.json'] } }],
+      })
+      await saveHandle(picked, HANDLED_FILE_KEY)
+      setHandledHandle(picked)
+      setHandledFileError('')
+      setHandledFileStatus('ok')
+      return true
+    } catch (error) {
+      if (error?.name !== 'AbortError') {
+        setHandledFileStatus('error')
+        setHandledFileError(error?.message || '書き出し先を選べませんでした')
+      }
+      return false
+    }
+  }, [handle])
+
+  // 書く許可をもらい直す（クリックから呼ぶ）。
+  const allowHandledFile = useCallback(async () => {
+    if (!handledHandle) return pickHandledFile()
+    try {
+      const permission = await handledHandle.requestPermission?.({ mode: 'readwrite' })
+      setHandledFileStatus(permission === 'granted' ? 'ok' : 'need-permission')
+      return permission === 'granted'
+    } catch (error) {
+      setHandledFileStatus('error')
+      setHandledFileError(error?.message || '書く許可をもらえませんでした')
+      return false
+    }
+  }, [handledHandle, pickHandledFile])
+
+  const forgetHandledFile = useCallback(async () => {
+    await clearHandle(HANDLED_FILE_KEY)
+    setHandledHandle(null)
+    setHandledFileStatus('none')
+    setHandledFileError('')
+  }, [])
+
   const markHandled = useCallback((item, action) => {
     setHandled((prev) => ({
       ...prev,
@@ -411,5 +510,11 @@ export function useMailInbox() {
     addManual,
     pendingClosed,
     markAutoClosed,
+    handledFileStatus,
+    handledFileError,
+    handledFileName: handledHandle?.name || '',
+    pickHandledFile,
+    allowHandledFile,
+    forgetHandledFile,
   }
 }
