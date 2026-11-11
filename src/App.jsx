@@ -17,7 +17,7 @@ import TaskCard from './components/TaskCard'
 import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
 import AddTaskDialog from './components/AddTaskDialog'
 import MailInboxPanel from './components/MailInboxPanel'
-import { useMailInbox, MAIL_PRIORITY_MAP } from './mailInbox'
+import { useMailInbox, MAIL_ORIGINS, MAIL_PRIORITY_MAP } from './mailInbox'
 
 // ログインユーザーごとの localStorage キャッシュキー（未ログイン/無効時は共通キー）。
 const localKey = (user) =>
@@ -1347,7 +1347,11 @@ export default function App() {
     const note = [
       item.summary,
       item.source === 'mail'
-        ? ['📧 メールから', receivedText, item.subject ? `件名：${item.subject}` : '']
+        ? [
+            `📧 ${(MAIL_ORIGINS[item.origin] || MAIL_ORIGINS.outlook).label}のメールから`,
+            receivedText,
+            item.subject ? `件名：${item.subject}` : '',
+          ]
             .filter(Boolean)
             .join(' ')
         : '',
@@ -1370,7 +1374,8 @@ export default function App() {
     )
   }
 
-  // Outlook で既読（または削除）になったメールから作った Task を、完了フォルダへ移す。
+  // Outlook で既読（または削除）になったメール、楽楽自動応対で対応完了・閲覧用・担当替えになったメール（id が md-…）から
+  // 作った Task を、完了フォルダへ移す。
   // 一度移したものは覚えておき、完了フォルダから戻した Task をまた移すことはしない。
   // メールから作った Task がまだ読み込まれていない（クラウド同期前など）ときは、次の機会に回す。
   const { pendingClosed, markAutoClosed } = mailInbox
@@ -1394,9 +1399,11 @@ export default function App() {
                 logs: [
                   ...(m.logs || []),
                   makeLog(
-                    reasons.get(m.mailItemId) === 'deleted'
-                      ? 'Outlookでメールが削除されたので完了にしました'
-                      : 'Outlookでメールが既読になったので完了にしました',
+                    String(m.mailItemId).startsWith('md-')
+                      ? '楽楽自動応対でメールが対応済み（対応完了・閲覧用・担当替え）になったので完了にしました'
+                      : reasons.get(m.mailItemId) === 'deleted'
+                        ? 'Outlookでメールが削除されたので完了にしました'
+                        : 'Outlookでメールが既読になったので完了にしました',
                     'status',
                   ),
                 ],
@@ -1406,7 +1413,11 @@ export default function App() {
       )
       const first = richTextToPlain(open[0].text || '')
       setQuickAddNotice(
-        `メールが既読になったので「${first.length > 16 ? `${first.slice(0, 16)}…` : first}」${
+        `${
+          open.every((m) => String(m.mailItemId).startsWith('md-'))
+            ? '楽楽自動応対で対応済みになった'
+            : 'メールが既読になった'
+        }ので「${first.length > 16 ? `${first.slice(0, 16)}…` : first}」${
           open.length > 1 ? `ほか${open.length - 1}件` : ''
         }を完了にしました`,
       )

@@ -8,8 +8,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 //   "items": [ { "id", "receivedAt", "from", "fromAddress", "subject",
 //                "title", "summary", "due": "YYYY-MM-DD"|null, "priority": 3|2|1, "reason" } ],
 //   "closedMails": [ { "id", "reason": "read"|"deleted", "at", "title" } ] }
-// closedMails は、受信箱に入れたあと Outlook で既読（または削除）になったメール。
+// closedMails は、受信箱に入れたあと Outlook で既読（または削除）になったメールと、
+// 楽楽自動応対で対応完了・閲覧用・担当替えになったメール（id が md-…）。
 // そのメールから作った Task は完了フォルダへ移す（一度だけ）。
+// 楽楽自動応対の項目は source: "maildealer" と originPath（例「楽楽自動応対 ＞ 企画部共有 ＞ 事務員さんFAX」）・mdId を持つ。
 
 const HANDLED_KEY = 'tn-mail-handled-v1'
 const MANUAL_KEY = 'tn-mail-manual-v1'
@@ -27,6 +29,34 @@ export const MAIL_PRIORITIES = [
   { v: 1, label: '低', color: '#71717a', soft: '#f1f1f2' },
 ]
 export const MAIL_PRIORITY_MAP = Object.fromEntries(MAIL_PRIORITIES.map((p) => [p.v, p]))
+
+// どこから来た項目か。カードの色と「取得元」の表示に使う。
+//   outlook    … Outlook の受信トレイ（outlook-tasknote。id が mail-…）
+//   maildealer … 楽楽自動応対（maildealer-tasknote。source: "maildealer"、id が md-…）
+//   review     … Claude の1日のふりかえり（id が review-…）
+//   manual     … この画面で手入力したもの
+export const MAIL_ORIGINS = {
+  outlook: { label: 'Outlook', path: 'Outlook ＞ 受信トレイ' },
+  maildealer: { label: '楽楽自動応対', path: '楽楽自動応対' },
+  review: { label: 'ふりかえり', path: 'Claude の1日のふりかえり' },
+  manual: { label: '手入力', path: '' },
+}
+
+const originOf = (raw, source) => {
+  if (source === 'manual') return 'manual'
+  const s = String(raw?.source ?? '').trim().toLowerCase()
+  const id = String(raw?.id ?? '')
+  if (s === 'maildealer' || id.startsWith('md-')) return 'maildealer'
+  if (s === 'review' || id.startsWith('review-')) return 'review'
+  return 'outlook'
+}
+
+// カードに出す「取得元」の文。楽楽自動応対はフォルダとメールIDまで出す。
+export const originText = (item) => {
+  const base = item.originPath || MAIL_ORIGINS[item.origin]?.path || ''
+  if (!base) return ''
+  return item.mdId ? `${base}（メールID ${item.mdId}）` : base
+}
 
 export const fileApiSupported =
   typeof window !== 'undefined' && typeof window.showOpenFilePicker === 'function'
@@ -91,6 +121,9 @@ const normalizeItem = (raw, source) => {
   return {
     id,
     source,
+    origin: originOf(raw, source),
+    originPath: text(raw.originPath),
+    mdId: text(raw.mdId),
     title,
     from: text(raw.from),
     fromAddress: text(raw.fromAddress),

@@ -1,8 +1,16 @@
 import { useRef, useState } from 'react'
-import { MAIL_PRIORITIES, MAIL_PRIORITY_MAP, fileApiSupported } from '../mailInbox'
+import {
+  MAIL_ORIGINS,
+  MAIL_PRIORITIES,
+  MAIL_PRIORITY_MAP,
+  fileApiSupported,
+  originText,
+} from '../mailInbox'
 
-// メール受信箱。Claude が Outlook から拾った「対応が要りそうなメール」と、手で入れた項目を並べる。
-// 「タスクにする」でふだんの Task（未対応）になり、「不要」で受信箱から消える。
+// メール受信箱。Claude が Outlook・楽楽自動応対から拾った「対応が要りそうなメール」と、手で入れた項目を並べる。
+// カードの色で出所を分ける（Outlook＝青、楽楽自動応対＝緑）。左の太線は優先度の色。
+// 「タスクにする」でふだんの Task（未対応）になり、「対応完了」で受信箱から消える
+// （TaskNote の中だけの印。Outlook や楽楽自動応対のメールは変わらない）。
 
 const pad = (n) => String(n).padStart(2, '0')
 
@@ -47,20 +55,22 @@ function PriorityBadge({ value }) {
   )
 }
 
+function OriginBadge({ origin }) {
+  const o = MAIL_ORIGINS[origin] || MAIL_ORIGINS.outlook
+  return <span className={`mail-source origin-${origin}`}>{o.label}</span>
+}
+
 function MailItem({ item, onAdopt, onDismiss }) {
   const [open, setOpen] = useState(false)
+  const where = originText(item)
   return (
-    <article className={`mail-item prio-${item.priority}`}>
+    <article className={`mail-item prio-${item.priority} origin-${item.origin}`}>
       <div className="mail-item-main">
         <PriorityBadge value={item.priority} />
         <div className="mail-item-body">
           <h3 className="mail-item-title">{item.title}</h3>
           <p className="mail-item-meta">
-            {item.source === 'manual' ? (
-              <span className="mail-source">手入力</span>
-            ) : (
-              <span className="mail-source is-mail">メール</span>
-            )}
+            <OriginBadge origin={item.origin} />
             {item.from && <span title={item.fromAddress || undefined}>{item.from}</span>}
             {(item.receivedAt || item.createdAt) && (
               <span>{fmtDateTime(item.receivedAt || item.createdAt)}</span>
@@ -69,6 +79,9 @@ function MailItem({ item, onAdopt, onDismiss }) {
               <span className={`mail-due ${dueState(item.due)}`}>期限 {fmtDue(item.due)}</span>
             )}
           </p>
+          {where && item.origin !== 'manual' && (
+            <p className="mail-item-origin">取得元：{where}</p>
+          )}
           {item.subject && item.subject !== item.title && (
             <p className="mail-item-subject">件名：{item.subject}</p>
           )}
@@ -103,9 +116,9 @@ function MailItem({ item, onAdopt, onDismiss }) {
           type="button"
           className="mail-dismiss"
           onClick={() => onDismiss(item)}
-          title="受信箱から消す（下の「処理済み」から戻せます）"
+          title="対応が済んだので受信箱から消す（TaskNoteの中だけの印で、Outlookや楽楽自動応対のメールは変わりません。下の「処理済み」から戻せます）"
         >
-          不要
+          対応完了
         </button>
       </div>
     </article>
@@ -353,8 +366,9 @@ export default function MailInboxPanel({ inbox, onAdopt }) {
                         item.handled.action === 'adopted' ? 'is-adopted' : ''
                       }`}
                     >
-                      {item.handled.action === 'adopted' ? 'タスク化' : '不要'}
+                      {item.handled.action === 'adopted' ? 'タスク化' : '対応完了'}
                     </span>
+                    <OriginBadge origin={item.origin} />
                     <span className="mail-handled-title">{item.title}</span>
                     <span className="mail-handled-at">{fmtDateTime(item.handled.at)}</span>
                     <button type="button" className="mail-link" onClick={() => restore(item.id)}>

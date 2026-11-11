@@ -6543,6 +6543,49 @@ body,
   color: var(--accent);
 }
 
+/* 出所ごとの色：Outlook＝青、楽楽自動応対＝緑。左の太線は優先度の色のまま。 */
+.mail-item,
+.mail-source {
+  --origin: var(--faint);
+}
+
+.mail-item.origin-outlook,
+.mail-source.origin-outlook {
+  --origin: #1d6fc4;
+}
+
+.mail-item.origin-maildealer,
+.mail-source.origin-maildealer {
+  --origin: #15805a;
+}
+
+.mail-item.origin-review,
+.mail-source.origin-review {
+  --origin: #7c5cc4;
+}
+
+.mail-item.origin-outlook,
+.mail-item.origin-maildealer {
+  background: color-mix(in srgb, var(--origin) 8%, var(--card));
+  border-top-color: color-mix(in srgb, var(--origin) 28%, var(--line));
+  border-right-color: color-mix(in srgb, var(--origin) 28%, var(--line));
+  border-bottom-color: color-mix(in srgb, var(--origin) 28%, var(--line));
+}
+
+.mail-source[class*='origin-'] {
+  background: color-mix(in srgb, var(--origin) 13%, var(--surface));
+  color: var(--origin);
+}
+
+.mail-item-origin {
+  margin: 4px 0 0;
+  color: var(--origin);
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 .mail-due {
   font-weight: 700;
   color: var(--text);
