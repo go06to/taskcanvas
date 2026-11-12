@@ -15,6 +15,15 @@ import {
 
 const pad = (n) => String(n).padStart(2, '0')
 
+// 処理済みの一覧に出す印。read・deleted・closed は、Outlook や楽楽自動応対の側で済んだので自動で移したもの。
+const HANDLED_LABELS = {
+  adopted: 'タスク化',
+  dismissed: '対応完了',
+  read: 'Outlookで既読',
+  deleted: 'Outlookで削除',
+  closed: '楽楽で対応済み',
+}
+
 const fmtDateTime = (value) => {
   if (!value) return ''
   const d = new Date(value)
@@ -416,14 +425,16 @@ export default function MailInboxPanel({ inbox, onAdopt }) {
                         item.handled.action === 'adopted' ? 'is-adopted' : ''
                       }`}
                     >
-                      {item.handled.action === 'adopted' ? 'タスク化' : '対応完了'}
+                      {HANDLED_LABELS[item.handled.action] || '対応完了'}
                     </span>
                     <OriginBadge origin={item.origin} />
                     <span className="mail-handled-title">{item.title}</span>
                     <span className="mail-handled-at">{fmtDateTime(item.handled.at)}</span>
-                    <button type="button" className="mail-link" onClick={() => restore(item.id)}>
-                      受信箱に戻す
-                    </button>
+                    {item.restorable && (
+                      <button type="button" className="mail-link" onClick={() => restore(item.id)}>
+                        受信箱に戻す
+                      </button>
+                    )}
                   </li>
                 ))}
               </ul>

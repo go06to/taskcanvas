@@ -174,6 +174,7 @@ export const parseInboxText = (raw) => {
         id: text(c?.id),
         reason: c?.reason === 'deleted' ? 'deleted' : 'read',
         at: text(c?.at) || null,
+        title: text(c?.title),
       }))
       .filter((c) => c.id),
   }
@@ -258,6 +259,22 @@ export function useMailInbox() {
     try {
       const parsed = parseInboxText(raw)
       setClosedMails(parsed.closed)
+      // 受信箱に入れたあと Outlook で既読・削除になったメール（楽楽自動応対で対応済みになったものも）は、
+      // 受信箱から黙って消さずに「処理済み」へ移す。自分で処理済みにしてあるものはそのまま。
+      setHandled((prev) => {
+        const fresh = parsed.closed.filter((c) => !prev[c.id] && isFresh({ at: c.at }))
+        if (!fresh.length) return prev
+        const next = { ...prev }
+        for (const c of fresh) {
+          next[c.id] = {
+            action: c.id.startsWith('md-') ? 'closed' : c.reason === 'deleted' ? 'deleted' : 'read',
+            at: c.at ? new Date(c.at).toISOString() : new Date().toISOString(),
+            title: c.title || '（件名なし）',
+            auto: true,
+          }
+        }
+        return next
+      })
       setFileItems(parsed.items)
       setFileUpdatedAt(parsed.updatedAt)
       setLoadedAt(new Date().toISOString())
@@ -483,14 +500,19 @@ export function useMailInbox() {
     () => allItems.filter((item) => !handled[item.id]).sort(compareItems),
     [allItems, handled],
   )
-  const handledItems = useMemo(
-    () =>
-      allItems
-        .filter((item) => handled[item.id])
-        .map((item) => ({ ...item, handled: handled[item.id] }))
-        .sort((a, b) => String(b.handled.at).localeCompare(String(a.handled.at))),
-    [allItems, handled],
-  )
+  // 処理済みの一覧。既読などでファイルから外れたメールも、印に残した件名で出す（受信箱には戻せない）。
+  const handledItems = useMemo(() => {
+    const byId = new Map(allItems.map((item) => [item.id, item]))
+    return Object.entries(handled)
+      .map(([id, mark]) => {
+        const item = byId.get(id)
+        if (item) return { ...item, handled: mark, restorable: true }
+        if (!mark?.auto) return null
+        return { id, title: mark.title, origin: originOf({ id }, 'mail'), handled: mark, restorable: false }
+      })
+      .filter(Boolean)
+      .sort((a, b) => String(b.handled.at).localeCompare(String(a.handled.at)))
+  }, [allItems, handled])
 
   return {
     openItems,
