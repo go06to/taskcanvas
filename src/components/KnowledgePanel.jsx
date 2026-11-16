@@ -51,6 +51,35 @@ const parseTags = (value) =>
 
 const tagsToText = (tags) => (Array.isArray(tags) ? tags.join(' ') : '')
 
+// 「完了」「不要」にしたメモは消さずに、一覧の下の「完了・不要」の欄にまとめる。
+export const SETTLE_OPTIONS = [
+  { key: 'done', label: '完了', icon: '✓', hint: '終わったメモ' },
+  { key: 'unneeded', label: '不要', icon: '－', hint: 'もう使わないメモ' },
+]
+export const settledOf = (item) =>
+  SETTLE_OPTIONS.find((option) => option.key === item?.settled) || null
+
+function SettleButtons({ onSettle, className = '' }) {
+  return (
+    <div className={`knowledge-settle ${className}`}>
+      {SETTLE_OPTIONS.map((option) => (
+        <button
+          key={option.key}
+          type="button"
+          className={`knowledge-settle-btn is-${option.key}`}
+          title={`${option.hint}として、下の「完了・不要」にまとめる`}
+          onClick={(e) => {
+            e.stopPropagation()
+            onSettle(option.key)
+          }}
+        >
+          {option.icon} {option.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 const searchHitOf = (item, searchQuery) => {
   const needle = searchQuery.trim().toLowerCase()
   if (!needle) return false
@@ -94,7 +123,7 @@ function ColorSwatches({ value, onChange, label }) {
 }
 
 // 一覧に並べる「読む用」のカード。クリックで拡大表示（編集）を開く。
-function KnowledgeNote({ item, onTogglePin, onReorder, onOpenDetail, searchQuery }) {
+function KnowledgeNote({ item, onTogglePin, onReorder, onOpenDetail, onSettle, searchQuery }) {
   const [dragOver, setDragOver] = useState(false)
   const [dragging, setDragging] = useState(false)
   const title = (item.title || '').trim()
@@ -197,6 +226,76 @@ function KnowledgeNote({ item, onTogglePin, onReorder, onOpenDetail, searchQuery
           </span>
         ))}
         <span className="knowledge-date">{fmtDate(item.updatedAt || item.createdAt)}</span>
+        {onSettle && (
+          <SettleButtons
+            className="is-on-note"
+            onSettle={(reason) => onSettle(item.id, reason)}
+          />
+        )}
+      </div>
+    </article>
+  )
+}
+
+// 「完了・不要」の欄に並べる小さいカード。クリックで中身を開ける。
+function SettledNote({ item, onOpenDetail, onRestore, onDelete, searchQuery }) {
+  const settled = settledOf(item)
+  const title = (item.title || '').trim()
+  const body = (item.body || '').trim()
+  const open = () => onOpenDetail(item.id)
+
+  return (
+    <article
+      className={`knowledge-settled-card is-${item.settled} ${
+        searchHitOf(item, searchQuery) ? 'is-search-hit' : ''
+      }`}
+      style={{ '--note': noteColor(item.color), '--note-accent': noteAccent(item.color) }}
+      role="button"
+      tabIndex={0}
+      title="クリックで開いて見る"
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          open()
+        }
+      }}
+    >
+      <div className="knowledge-settled-card-head">
+        <span className={`knowledge-settled-chip is-${item.settled}`}>
+          {settled?.icon} {settled?.label}
+          {fmtDate(item.settledAt) && <small>{fmtDate(item.settledAt)}</small>}
+        </span>
+        <h3 className={`knowledge-settled-title ${title ? '' : 'is-untitled'}`}>
+          {title || '（タイトルなし）'}
+        </h3>
+      </div>
+      {body && <p className="knowledge-settled-body">{body}</p>}
+      <div className="knowledge-settled-actions">
+        {item.category && <span className="knowledge-chip is-category">{item.category}</span>}
+        <button
+          type="button"
+          className="knowledge-restore"
+          title="上の一覧にもどす"
+          onClick={(e) => {
+            e.stopPropagation()
+            onRestore(item.id)
+          }}
+        >
+          ↩ もどす
+        </button>
+        <button
+          type="button"
+          className="knowledge-delete"
+          title="このメモを削除（元に戻せません）"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(item.id)
+          }}
+        >
+          削除
+        </button>
       </div>
     </article>
   )
@@ -210,8 +309,11 @@ export function KnowledgeCard({
   onDelete,
   onTogglePin,
   onMakeTask,
+  onSettle,
+  onRestore,
   searchQuery = '',
 }) {
+  const settled = settledOf(item)
   const [draft, setDraft] = useState({
     title: item.title || '',
     body: item.body || '',
@@ -249,12 +351,26 @@ export function KnowledgeCard({
     <article
       className={`knowledge-card ${large ? 'large' : ''} ${item.pinned ? 'is-pinned' : ''} ${
         isHighlighted(item) ? 'is-highlight' : ''
-      } ${searchHitOf(item, searchQuery) ? 'is-search-hit' : ''}`}
+      } ${searchHitOf(item, searchQuery) ? 'is-search-hit' : ''} ${settled ? 'is-settled' : ''}`}
       style={{
         '--note': noteColor(item.color),
         '--note-accent': noteAccent(item.color),
       }}
     >
+      {settled && (
+        <div className={`knowledge-settled-banner is-${item.settled}`}>
+          <span>
+            {settled.icon} 「{settled.label}」にしたメモです
+            {fmtDate(item.settledAt) && `（${fmtDate(item.settledAt)}）`}
+            。一覧の下の「完了・不要」にまとめています。
+          </span>
+          {onRestore && (
+            <button type="button" className="knowledge-restore" onClick={() => onRestore(item.id)}>
+              ↩ 一覧にもどす
+            </button>
+          )}
+        </div>
+      )}
       <div className="knowledge-card-top">
         <input
           className="knowledge-title-input"
@@ -330,6 +446,14 @@ export function KnowledgeCard({
             ＋ タスクにする
           </button>
         )}
+        {onSettle && !settled && (
+          <SettleButtons
+            onSettle={(reason) => {
+              save()
+              onSettle(item.id, reason)
+            }}
+          />
+        )}
         <button
           type="button"
           className="knowledge-delete"
@@ -351,10 +475,15 @@ export default function KnowledgePanel({
   onReorder,
   onOpenDetail,
   onExport,
+  onSettle,
+  onRestore,
+  onDelete,
   searchQuery = '',
   onSearchQueryChange,
 }) {
   const [query, setQuery] = useState('')
+  const [settledOpen, setSettledOpen] = useState(false)
+  const [settledFilter, setSettledFilter] = useState('all')
   const displayedQuery = onSearchQueryChange ? searchQuery : query
   const emptyDraft = {
     title: '',
@@ -366,8 +495,11 @@ export default function KnowledgePanel({
   }
   const [draft, setDraft] = useState(emptyDraft)
 
+  const searching = Boolean(displayedQuery.trim())
+
   // ピン留めしたメモを先頭に。それ以外は並び替えた順のまま。
-  const filtered = useMemo(() => {
+  // 「完了」「不要」にしたメモは別にして、新しく片付けた順に下へまとめる。
+  const { filtered, settledItems, settledTotal, settledCounts } = useMemo(() => {
     const q = displayedQuery.trim().toLowerCase()
     const hits = items.filter((item) => {
       if (!q) return true
@@ -376,8 +508,31 @@ export default function KnowledgePanel({
         .toLowerCase()
         .includes(q)
     })
-    return [...hits.filter((item) => item.pinned), ...hits.filter((item) => !item.pinned)]
+    const active = hits.filter((item) => !settledOf(item))
+    const settled = hits
+      .filter((item) => settledOf(item))
+      .sort((a, b) => String(b.settledAt || '').localeCompare(String(a.settledAt || '')))
+    const allSettled = items.filter((item) => settledOf(item))
+    return {
+      filtered: [...active.filter((item) => item.pinned), ...active.filter((item) => !item.pinned)],
+      settledItems: settled,
+      settledTotal: allSettled.length,
+      settledCounts: Object.fromEntries(
+        SETTLE_OPTIONS.map((option) => [
+          option.key,
+          settled.filter((item) => item.settled === option.key).length,
+        ]),
+      ),
+    }
   }, [items, displayedQuery])
+
+  const activeTotal = items.length - settledTotal
+  // 検索中は、完了・不要の中で一致したメモも開いて見せる。
+  const showSettled = settledOpen || (searching && settledItems.length > 0)
+  const visibleSettled =
+    settledFilter === 'all'
+      ? settledItems
+      : settledItems.filter((item) => item.settled === settledFilter)
 
   const updateSearch = (value) => {
     if (onSearchQueryChange) onSearchQueryChange(value)
@@ -408,7 +563,17 @@ export default function KnowledgePanel({
       <div className="knowledge-head">
         <h2>Freespace</h2>
         <div className="knowledge-head-meta">
-          <span className="knowledge-count">{items.length}件</span>
+          <span
+            className="knowledge-count"
+            title={
+              settledTotal
+                ? `ほかに完了・不要のメモが ${settledTotal} 件（一覧の下にまとめています）`
+                : undefined
+            }
+          >
+            {activeTotal}件
+            {settledTotal > 0 && <small>＋完了・不要 {settledTotal}</small>}
+          </span>
           <button
             type="button"
             className="section-export-button"
@@ -492,13 +657,87 @@ export default function KnowledgePanel({
             onTogglePin={onTogglePin}
             onReorder={onReorder}
             onOpenDetail={onOpenDetail}
+            onSettle={onSettle}
             searchQuery={displayedQuery}
           />
         ))}
         {filtered.length === 0 && (
           <p className="knowledge-empty">
-            {displayedQuery ? '一致するメモはありません' : 'メモはありません'}
+            {searching
+              ? settledItems.length
+                ? '一覧には一致するメモはありません（下の「完了・不要」に一致があります）'
+                : '一致するメモはありません'
+              : settledTotal
+                ? 'いま使っているメモはありません（完了・不要のメモは下にまとめています）'
+                : 'メモはありません'}
           </p>
+        )}
+
+        {(searching ? settledItems.length > 0 : settledTotal > 0) && (
+          <section
+            className={`knowledge-settled ${showSettled ? 'is-open' : ''}`}
+            aria-label="完了・不要のメモ"
+          >
+            <button
+              type="button"
+              className="knowledge-settled-toggle"
+              aria-expanded={showSettled}
+              disabled={searching}
+              onClick={() => setSettledOpen((value) => !value)}
+            >
+              <span className="knowledge-settled-caret" aria-hidden="true">
+                {showSettled ? '▾' : '▸'}
+              </span>
+              <span className="knowledge-settled-label">完了・不要のメモ</span>
+              <strong>{settledItems.length}件</strong>
+              <span className="knowledge-settled-counts">
+                {SETTLE_OPTIONS.map((option) => (
+                  <span key={option.key} className={`is-${option.key}`}>
+                    {option.label} {settledCounts[option.key]}
+                  </span>
+                ))}
+              </span>
+              <span className="knowledge-settled-hint">
+                {searching ? '検索に一致したもの' : showSettled ? 'クリックでたたむ' : 'クリックで開く'}
+              </span>
+            </button>
+
+            {showSettled && (
+              <>
+                <div className="knowledge-settled-filter" role="group" aria-label="完了・不要の絞り込み">
+                  {[{ key: 'all', label: 'すべて' }, ...SETTLE_OPTIONS].map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={settledFilter === option.key ? 'is-active' : ''}
+                      aria-pressed={settledFilter === option.key}
+                      onClick={() => setSettledFilter(option.key)}
+                    >
+                      {option.label}
+                      <small>
+                        {option.key === 'all' ? settledItems.length : settledCounts[option.key]}
+                      </small>
+                    </button>
+                  ))}
+                </div>
+                <div className="knowledge-settled-grid">
+                  {visibleSettled.map((item) => (
+                    <SettledNote
+                      key={item.id}
+                      item={item}
+                      onOpenDetail={onOpenDetail}
+                      onRestore={onRestore}
+                      onDelete={onDelete}
+                      searchQuery={displayedQuery}
+                    />
+                  ))}
+                  {visibleSettled.length === 0 && (
+                    <p className="knowledge-empty">該当するメモはありません</p>
+                  )}
+                </div>
+              </>
+            )}
+          </section>
         )}
       </div>
     </aside>

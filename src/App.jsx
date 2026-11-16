@@ -14,7 +14,7 @@ import MemoPanel, {
   memoStatus,
 } from './components/MemoPanel'
 import TaskCard from './components/TaskCard'
-import KnowledgePanel, { KnowledgeCard } from './components/KnowledgePanel'
+import KnowledgePanel, { KnowledgeCard, SETTLE_OPTIONS } from './components/KnowledgePanel'
 import AddTaskDialog from './components/AddTaskDialog'
 import MailInboxPanel from './components/MailInboxPanel'
 import { useMailInbox, MAIL_ORIGINS, MAIL_PRIORITY_MAP } from './mailInbox'
@@ -303,6 +303,8 @@ export default function App() {
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [addFocusRequest, setAddFocusRequest] = useState(0)
   const [quickAddNotice, setQuickAddNotice] = useState('')
+  // Freespace のメモを「完了」「不要」にした直後に出す、元に戻せるお知らせ。
+  const [knowledgeUndo, setKnowledgeUndo] = useState(null)
   const [sortKey, setSortKey] = useState(
     () => localStorage.getItem('tb-sort') || 'manual',
   )
@@ -1170,6 +1172,37 @@ export default function App() {
     setKnowledge((prev) => prev.filter((item) => item.id !== id))
   }
 
+  // 完了・不要になったメモは消さずに、一覧の下の「完了・不要」にまとめる。
+  // 中身を直したわけではないので、更新日時（updatedAt）は変えない。
+  const settleKnowledge = (id, reason) => {
+    const item = knowledge.find((entry) => entry.id === id)
+    const option = SETTLE_OPTIONS.find((entry) => entry.key === reason)
+    if (!item || !option) return
+    setKnowledge((prev) =>
+      prev.map((entry) =>
+        entry.id === id ? { ...entry, settled: reason, settledAt: nowISO() } : entry,
+      ),
+    )
+    if (detail?.type === 'knowledge' && detail.id === id) setDetail(null)
+    const title = (item.title || item.body || '').trim() || '（タイトルなし）'
+    setKnowledgeUndo({
+      id,
+      text: `「${title.length > 16 ? `${title.slice(0, 16)}…` : title}」を${option.label}にして下にまとめました`,
+    })
+  }
+
+  const restoreKnowledge = (id) => {
+    setKnowledge((prev) =>
+      prev.map((entry) => {
+        if (entry.id !== id) return entry
+        // クラウド保存で undefined を送らないよう、項目ごと外す。
+        const { settled, settledAt, ...rest } = entry
+        return rest
+      }),
+    )
+    setKnowledgeUndo(null)
+  }
+
   // --- 検索 ---------------------------------------------------------------
   const q = query.trim().toLowerCase()
   const stripHtml = (html) => (html || '').replace(/<[^>]*>/g, ' ')
@@ -1491,6 +1524,12 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [quickAddNotice])
 
+  useEffect(() => {
+    if (!knowledgeUndo) return
+    const timer = setTimeout(() => setKnowledgeUndo(null), 6000)
+    return () => clearTimeout(timer)
+  }, [knowledgeUndo])
+
   const changeMemoSort = (mode) => {
     setMemoSort(mode)
     try {
@@ -1568,6 +1607,8 @@ export default function App() {
       { key: 'pinned', label: 'ピン留め' },
       { key: 'color', label: '色' },
       { key: 'effect', label: 'MARK' },
+      { key: 'settled', label: '完了・不要' },
+      { key: 'settledAt', label: '完了・不要にした日時' },
       { key: 'createdAt', label: '作成日時' },
       { key: 'updatedAt', label: '更新日時' },
     ]
@@ -1621,6 +1662,8 @@ export default function App() {
       pinned: item.pinned ? 'あり' : '',
       color: item.color || '',
       effect: item.effect && item.effect !== 'none' ? 'あり' : '',
+      settled: SETTLE_OPTIONS.find((option) => option.key === item.settled)?.label || '',
+      settledAt: item.settled ? formatCsvDate(item.settledAt) : '',
       createdAt: formatCsvDate(item.createdAt),
       updatedAt: formatCsvDate(item.updatedAt),
     }))
@@ -1709,6 +1752,8 @@ export default function App() {
     onTogglePin: toggleKnowledgePin,
     onReorder: reorderKnowledge,
     onMakeTask: createTaskFromKnowledge,
+    onSettle: settleKnowledge,
+    onRestore: restoreKnowledge,
     searchQuery: query,
     onSearchQueryChange: setQuery,
   }
@@ -2204,6 +2249,14 @@ export default function App() {
       {quickAddNotice && (
         <div className="add-toast" role="status">
           ✓ {quickAddNotice}
+        </div>
+      )}
+      {knowledgeUndo && (
+        <div className="settle-toast" role="status">
+          <span>{knowledgeUndo.text}</span>
+          <button type="button" onClick={() => restoreKnowledge(knowledgeUndo.id)}>
+            元に戻す
+          </button>
         </div>
       )}
       <PasswordDialog
