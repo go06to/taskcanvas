@@ -114,6 +114,7 @@ const formatChecklist = (items = []) =>
         `${item.done ? '☑' : '☐'} ${item.title || ''}`.trim(),
         item.comment ? `コメント: ${item.comment}` : '',
         alarmValue(item) ? `アラーム: ${alarmValue(item)}` : '',
+        ...(item.logs || []).map((log) => `進捗 ${formatCsvDate(log.at)} ${log.text}`),
       ].filter(Boolean)
       return details.join(' / ')
     })
@@ -889,6 +890,64 @@ export default function App() {
       ),
     )
 
+  // 書いた進捗をあとから直す（直した日時も残す）。
+  const editMemoLog = (id, logId, text) => {
+    const value = String(text || '').trim()
+    if (!value || warnIfMemoPasswordRequired(id)) return
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === id
+          ? {
+              ...memo,
+              logs: (memo.logs || []).map((log) =>
+                log.id === logId && log.text !== value
+                  ? { ...log, text: value, editedAt: nowISO() }
+                  : log,
+              ),
+            }
+          : memo,
+      ),
+    )
+  }
+
+  // サブタスクごとの進捗。サブタスクの logs に時系列で積む。
+  const updateMiniTaskLogs = (memoId, miniTaskId, change) => {
+    if (warnIfMemoPasswordRequired(memoId)) return
+    setMemos((prev) =>
+      prev.map((memo) =>
+        memo.id === memoId
+          ? {
+              ...memo,
+              miniTasks: (memo.miniTasks || []).map((task) =>
+                task.id === miniTaskId ? { ...task, logs: change(task.logs || []) } : task,
+              ),
+            }
+          : memo,
+      ),
+    )
+  }
+
+  const addMiniTaskLog = (memoId, miniTaskId, text) => {
+    const value = String(text || '').trim()
+    if (!value) return
+    updateMiniTaskLogs(memoId, miniTaskId, (logs) => [...logs, makeLog(value)])
+  }
+
+  const editMiniTaskLog = (memoId, miniTaskId, logId, text) => {
+    const value = String(text || '').trim()
+    if (!value) return
+    updateMiniTaskLogs(memoId, miniTaskId, (logs) =>
+      logs.map((log) =>
+        log.id === logId && log.text !== value
+          ? { ...log, text: value, editedAt: nowISO() }
+          : log,
+      ),
+    )
+  }
+
+  const deleteMiniTaskLog = (memoId, miniTaskId, logId) =>
+    updateMiniTaskLogs(memoId, miniTaskId, (logs) => logs.filter((log) => log.id !== logId))
+
   const toggleMemoMark = (id) => {
     const memo = memos.find((item) => item.id === id)
     if (!memo || !canReadMemo(memo)) return
@@ -1178,6 +1237,7 @@ export default function App() {
           task.title,
           task.comment,
           task.alarmAt,
+          ...(task.logs || []).map((log) => log.text),
         ]),
       ]).includes(q))
   const matchKnowledge = (item) =>
@@ -1491,7 +1551,7 @@ export default function App() {
       { key: 'contact', label: '相手' },
       { key: 'marked', label: 'MARK' },
       { key: 'comment', label: 'コメント' },
-      { key: 'logs', label: '対応の記録' },
+      { key: 'logs', label: '進捗' },
       { key: 'done', label: '状態' },
       { key: 'alarm', label: 'アラーム' },
       { key: 'subtasks', label: 'サブタスク' },
@@ -1620,6 +1680,10 @@ export default function App() {
     onToggleMark: toggleMemoMark,
     onAddLog: addMemoLog,
     onDeleteLog: deleteMemoLog,
+    onEditLog: editMemoLog,
+    onAddMiniTaskLog: addMiniTaskLog,
+    onEditMiniTaskLog: editMiniTaskLog,
+    onDeleteMiniTaskLog: deleteMiniTaskLog,
     onSetAlarm: setMemoAlarm,
     onAddMiniTask: addMemoMiniTask,
     onToggleMiniTask: toggleMemoMiniTask,

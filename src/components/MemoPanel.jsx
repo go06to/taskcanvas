@@ -60,8 +60,203 @@ export const matchesMemoFilter = (memo, filter) => {
   return memoStatus(memo) === filter
 }
 
-function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) {
+const fmtLogTime = (iso) => {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(
+    d.getMinutes(),
+  ).padStart(2, '0')}`
+}
+
+// 進捗でよく使う言葉（1回押すだけで書ける）。
+const LOG_PRESETS = ['折り返し済み', '留守電を残した', 'メール送信', '見積送付', '資料送付']
+
+// 進捗1件。文字をクリックすると直せる（進み具合の自動の記録は直せない）。
+function ProgressEntry({ log, latest, onEdit, onDelete }) {
   const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(log.text)
+  const editable = log.kind !== 'status' && Boolean(onEdit)
+
+  const save = () => {
+    const value = draft.trim()
+    if (value && value !== log.text) onEdit(log.id, value)
+    else setDraft(log.text)
+    setEditing(false)
+  }
+
+  return (
+    <li
+      className={`progress-entry ${log.kind === 'status' ? 'is-status' : ''} ${
+        latest ? 'is-latest' : ''
+      }`}
+    >
+      <span className="progress-dot" aria-hidden="true" />
+      <time className="progress-time" dateTime={log.at}>
+        {fmtLogTime(log.at)}
+      </time>
+      {editing ? (
+        <textarea
+          className="progress-edit"
+          value={draft}
+          autoFocus
+          rows={Math.max(1, draft.split('\n').length)}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={save}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault()
+              save()
+            }
+            if (e.key === 'Escape') {
+              setDraft(log.text)
+              setEditing(false)
+            }
+          }}
+        />
+      ) : (
+        <span
+          className={`progress-text ${editable ? 'is-editable' : ''}`}
+          title={editable ? 'クリックで直す' : undefined}
+          onClick={() => {
+            if (!editable) return
+            setDraft(log.text)
+            setEditing(true)
+          }}
+        >
+          {linkify(log.text)}
+          {log.editedAt && (
+            <span className="progress-edited">（{fmtLogTime(log.editedAt)} 修正）</span>
+          )}
+        </span>
+      )}
+      <button
+        type="button"
+        className="progress-delete"
+        title="この進捗を消す"
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={() => onDelete?.(log.id)}
+      >
+        ×
+      </button>
+    </li>
+  )
+}
+
+// 進捗のタイムライン。点と線でつなぎ、いちばん下に次の進捗を書く欄を出す。
+function ProgressTimeline({
+  logs,
+  open,
+  compact = false,
+  showAll = false,
+  presets = LOG_PRESETS,
+  onAdd,
+  onEdit,
+  onDelete,
+  onClose,
+}) {
+  const [draft, setDraft] = useState('')
+  const [expanded, setExpanded] = useState(false)
+  const limit = compact ? 2 : 3
+  const visible = showAll || expanded ? logs : logs.slice(-limit)
+  const hidden = logs.length - visible.length
+
+  const add = (text) => {
+    const value = String(text || '').trim()
+    if (!value) return
+    onAdd(value)
+    setDraft('')
+  }
+
+  if (!logs.length && !open) return null
+
+  return (
+    <div className={`progress ${compact ? 'is-compact' : ''}`} aria-label="進捗">
+      {!compact && <div className="progress-label">進捗</div>}
+      {hidden > 0 && (
+        <button type="button" className="progress-more" onClick={() => setExpanded(true)}>
+          以前の進捗をあと {hidden} 件見る
+        </button>
+      )}
+      <ol className="progress-list">
+        {visible.map((log, index) => (
+          <ProgressEntry
+            key={log.id}
+            log={log}
+            latest={!open && index === visible.length - 1}
+            onEdit={onEdit}
+            onDelete={onDelete}
+          />
+        ))}
+        {open && (
+          <li className="progress-entry is-new">
+            <span className="progress-dot" aria-hidden="true" />
+            <div className="progress-add">
+              {presets.length > 0 && (
+                <div className="progress-presets">
+                  {presets.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => add(preset)}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <div className="progress-input">
+                <textarea
+                  value={draft}
+                  autoFocus
+                  rows={Math.max(1, draft.split('\n').length)}
+                  placeholder={
+                    compact
+                      ? 'このサブタスクの進捗を書く（Enterで追加）'
+                      : '進捗を書く（例：11日に再度連絡すると伝えた）Enterで追加・Shift+Enterで改行'
+                  }
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      add(draft)
+                    }
+                    if (e.key === 'Escape') {
+                      setDraft('')
+                      onClose?.()
+                    }
+                  }}
+                />
+                <button type="button" onClick={() => add(draft)} disabled={!draft.trim()}>
+                  追加
+                </button>
+                <button type="button" className="progress-close" onClick={() => onClose?.()}>
+                  閉じる
+                </button>
+              </div>
+            </div>
+          </li>
+        )}
+      </ol>
+    </div>
+  )
+}
+
+function MemoMiniTask({
+  memoId,
+  task,
+  large,
+  onToggle,
+  onEdit,
+  onSetAlarm,
+  onDelete,
+  onAddLog,
+  onEditLog,
+  onDeleteLog,
+}) {
+  const [editing, setEditing] = useState(false)
+  const [openLog, setOpenLog] = useState(false)
+  const logs = Array.isArray(task.logs) ? task.logs : []
   const [openAlarm, setOpenAlarm] = useState(false)
   const [draft, setDraft] = useState(task.title)
 
@@ -77,6 +272,7 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) 
   }
 
   return (
+    <div className="memo-mini-item">
     <div
       className={`memo-mini-task ${task.done ? 'is-done' : ''} ${
         isAlarmDue(task) ? 'has-alarm-due' : ''
@@ -112,6 +308,14 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) 
           {linkify(task.title)}
         </span>
       )}
+      <button
+        type="button"
+        className={`memo-mini-log ${logs.length ? 'has' : ''} ${openLog ? 'is-open' : ''}`}
+        title={logs.length ? `進捗 ${logs.length} 件（クリックで書く）` : 'このサブタスクの進捗を書く'}
+        onClick={() => setOpenLog((value) => !value)}
+      >
+        📝{logs.length > 0 && <span className="memo-mini-log-count">{logs.length}</span>}
+      </button>
       <button
         type="button"
         className={`memo-mini-alarm ${itemAlarm(task) ? 'is-set' : ''} ${
@@ -155,6 +359,18 @@ function MemoMiniTask({ memoId, task, onToggle, onEdit, onSetAlarm, onDelete }) 
         </div>
       )}
     </div>
+      <ProgressTimeline
+        logs={logs}
+        open={openLog}
+        compact
+        showAll={large}
+        presets={[]}
+        onAdd={(text) => onAddLog?.(memoId, task.id, text)}
+        onEdit={(logId, text) => onEditLog?.(memoId, task.id, logId, text)}
+        onDelete={(logId) => onDeleteLog?.(memoId, task.id, logId)}
+        onClose={() => setOpenLog(false)}
+      />
+    </div>
   )
 }
 
@@ -181,17 +397,6 @@ function ContactText({ text }) {
     )
 }
 
-const fmtLogTime = (iso) => {
-  const d = new Date(iso)
-  if (Number.isNaN(d.getTime())) return ''
-  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(
-    d.getMinutes(),
-  ).padStart(2, '0')}`
-}
-
-// 対応の記録でよく使う言葉（1回押すだけで記録できる）。
-const LOG_PRESETS = ['折り返し済み', '留守電を残した', 'メール送信', '見積送付', '資料送付']
-
 // 1行のリッチテキスト編集（contentEditable）。直接書き込み・装飾・コメント。
 export function MemoRow({
   memo,
@@ -206,6 +411,10 @@ export function MemoRow({
   onToggleMark,
   onAddLog,
   onDeleteLog,
+  onEditLog,
+  onAddMiniTaskLog,
+  onEditMiniTaskLog,
+  onDeleteMiniTaskLog,
   onSetAlarm,
   onAddMiniTask,
   onToggleMiniTask,
@@ -231,12 +440,8 @@ export function MemoRow({
   const [openContact, setOpenContact] = useState(false)
   const [contactDraft, setContactDraft] = useState(memo.contact || '')
   const [openLog, setOpenLog] = useState(false)
-  const [logDraft, setLogDraft] = useState('')
-  const [showAllLogs, setShowAllLogs] = useState(false)
   const miniTasks = Array.isArray(memo.miniTasks) ? memo.miniTasks : []
   const logs = Array.isArray(memo.logs) ? memo.logs : []
-  const visibleLogs = large || showAllLogs ? logs : logs.slice(-3)
-  const hiddenLogCount = logs.length - visibleLogs.length
   const protectedMemo = Boolean(memo.passwordHash)
   const locked = protectedMemo && !isUnlocked(memo.id)
   const searchNeedle = searchQuery.trim().toLowerCase()
@@ -246,7 +451,12 @@ export function MemoRow({
     memo.contact,
     ...logs.map((log) => log.text),
     memo.alarmAt,
-    ...miniTasks.flatMap((task) => [task.title, task.comment, task.alarmAt]),
+    ...miniTasks.flatMap((task) => [
+      task.title,
+      task.comment,
+      task.alarmAt,
+      ...(task.logs || []).map((log) => log.text),
+    ]),
   ]
     .filter(Boolean)
     .join(' ')
@@ -293,11 +503,7 @@ export function MemoRow({
 
   const addLog = (text) => {
     if (locked) return
-    const value = String(text || '').trim()
-    if (!value) return
-    onAddLog?.(memo.id, value)
-    setLogDraft('')
-    setOpenLog(false)
+    onAddLog?.(memo.id, text)
   }
 
   const hasExtras =
@@ -476,76 +682,15 @@ export function MemoRow({
               </div>
             ) : null}
 
-            {(logs.length > 0 || openLog) && (
-              <div className="memo-logs" aria-label="対応の記録">
-                {hiddenLogCount > 0 && (
-                  <button
-                    type="button"
-                    className="memo-logs-more"
-                    onClick={() => setShowAllLogs(true)}
-                  >
-                    以前の記録をあと {hiddenLogCount} 件見る
-                  </button>
-                )}
-                {visibleLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className={`memo-log ${log.kind === 'status' ? 'is-status' : ''}`}
-                  >
-                    <time className="memo-log-time" dateTime={log.at}>
-                      {fmtLogTime(log.at)}
-                    </time>
-                    <span className="memo-log-text">{log.text}</span>
-                    <button
-                      type="button"
-                      className="memo-log-delete"
-                      title="この記録を消す"
-                      onClick={() => onDeleteLog?.(memo.id, log.id)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))}
-                {openLog && (
-                  <div className="memo-log-add">
-                    <div className="memo-log-presets">
-                      {LOG_PRESETS.map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => addLog(preset)}
-                        >
-                          {preset}
-                        </button>
-                      ))}
-                    </div>
-                    <div className="memo-log-input">
-                      <input
-                        value={logDraft}
-                        autoFocus
-                        placeholder="記録を書く（例：11日に再度連絡すると伝えた）"
-                        onChange={(e) => setLogDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && !e.nativeEvent.isComposing) addLog(logDraft)
-                          if (e.key === 'Escape') {
-                            setLogDraft('')
-                            setOpenLog(false)
-                          }
-                        }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => addLog(logDraft)}
-                        disabled={!logDraft.trim()}
-                      >
-                        記録
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
+            <ProgressTimeline
+              logs={logs}
+              open={openLog}
+              showAll={large}
+              onAdd={addLog}
+              onEdit={(logId, text) => onEditLog?.(memo.id, logId, text)}
+              onDelete={(logId) => onDeleteLog?.(memo.id, logId)}
+              onClose={() => setOpenLog(false)}
+            />
 
             {(openMini || miniTasks.length > 0) && (
               <div className="memo-mini-panel">
@@ -554,10 +699,14 @@ export function MemoRow({
                     key={task.id}
                     memoId={memo.id}
                     task={task}
+                    large={large}
                     onToggle={onToggleMiniTask}
                     onEdit={onEditMiniTask}
                     onSetAlarm={onSetMiniTaskAlarm}
                     onDelete={onDeleteMiniTask}
+                    onAddLog={onAddMiniTaskLog}
+                    onEditLog={onEditMiniTaskLog}
+                    onDeleteLog={onDeleteMiniTaskLog}
                   />
                 ))}
                 {openMini && (
@@ -700,15 +849,17 @@ export function MemoRow({
           )}
           <button
             type="button"
-            className={`memo-log-toggle ${logs.some((log) => log.kind !== 'status') ? 'has' : ''}`}
+            className={`memo-log-toggle ${logs.some((log) => log.kind !== 'status') ? 'has' : ''} ${
+              openLog ? 'is-open' : ''
+            }`}
             disabled={locked}
-            title="対応の記録を残す（折り返し済み・見積送付など）"
+            title="進捗を書く（折り返し済み・見積送付など）。サブタスクの進捗は各サブタスクの📝から"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => {
               if (!locked) setOpenLog((value) => !value)
             }}
           >
-            📝 記録
+            📝 進捗
           </button>
           <button
             type="button"
@@ -762,6 +913,10 @@ export default function MemoPanel({
   onToggleMark,
   onAddLog,
   onDeleteLog,
+  onEditLog,
+  onAddMiniTaskLog,
+  onEditMiniTaskLog,
+  onDeleteMiniTaskLog,
   onSetAlarm,
   onAddMiniTask,
   onToggleMiniTask,
@@ -894,6 +1049,10 @@ export default function MemoPanel({
             onToggleMark={onToggleMark}
             onAddLog={onAddLog}
             onDeleteLog={onDeleteLog}
+            onEditLog={onEditLog}
+            onAddMiniTaskLog={onAddMiniTaskLog}
+            onEditMiniTaskLog={onEditMiniTaskLog}
+            onDeleteMiniTaskLog={onDeleteMiniTaskLog}
             onSetAlarm={onSetAlarm}
             onAddMiniTask={onAddMiniTask}
             onToggleMiniTask={onToggleMiniTask}
