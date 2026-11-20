@@ -21,6 +21,31 @@ import AddTaskDialog from './components/AddTaskDialog'
 const localKey = (user) =>
   firebaseEnabled && user ? `${STORAGE_KEY}-u-${user.uid}` : STORAGE_KEY
 
+// メール画面（Claude の Artifact）。上の段の「メール画面」のリンク先。2026-11-20 追加。
+const MAIL_PAGE_URL = 'https://claude.ai/artifact/Ty8H6FNgCSqMeRmDJuoe9U'
+
+// メール画面から来たリンクの # の後ろを読む（# の後ろはサーバーに送られない）。2026-11-20 追加。
+//  #add=1&title=…&note=…&contact=…&due=YYYY-MM-DD → 「タスクを追加」の画面をその中身で開く（追加は画面で「追加」を押したときだけ）
+//  #open=<タスクのID> → そのタスクを開く
+function readLinkHash() {
+  if (typeof window === 'undefined') return null
+  const hash = window.location.hash.slice(1)
+  if (!hash) return null
+  const p = new URLSearchParams(hash)
+  if (p.get('add') === '1') {
+    const due = p.get('due') || ''
+    return {
+      type: 'add',
+      title: (p.get('title') || '').slice(0, 300),
+      note: (p.get('note') || '').slice(0, 3000),
+      contact: (p.get('contact') || '').slice(0, 300),
+      due: /^\d{4}-\d{2}-\d{2}$/.test(due) ? due : '',
+    }
+  }
+  if (p.get('open')) return { type: 'open', id: p.get('open') }
+  return null
+}
+
 // 一意なIDを生成する。
 const newId = () =>
   (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())
@@ -1436,6 +1461,42 @@ export default function App() {
     return () => clearTimeout(timer)
   }, [quickAddNotice])
 
+  // メール画面から来たリンク（readLinkHash）。クラウドの中身が届いてから開く
+  // （届く前に追加すると、この端末の古い控えでクラウドを上書きするおそれがあるため）。2026-11-20 追加。
+  const [linkRequest, setLinkRequest] = useState(() => readLinkHash())
+  useEffect(() => {
+    const onHash = () => {
+      const request = readLinkHash()
+      if (request) setLinkRequest(request)
+    }
+    window.addEventListener('hashchange', onHash)
+    return () => window.removeEventListener('hashchange', onHash)
+  }, [])
+  useEffect(() => {
+    if (!linkRequest) return
+    if (firebaseEnabled && (!user || cloudStatus !== 'on')) return
+    const request = linkRequest
+    setLinkRequest(null)
+    window.history.replaceState(null, '', window.location.pathname + window.location.search)
+    if (request.type === 'add') {
+      setQuickAddText(request.title)
+      setQuickAddNote(request.note)
+      setQuickAddContact(request.contact)
+      setQuickAddDue(request.due)
+      setQuickAddMarked(false)
+      setQuickAddStatus('todo')
+      setAddDialogOpen(true)
+      setAddFocusRequest((value) => value + 1)
+      return
+    }
+    if (request.type === 'open') {
+      const memo = memos.find((m) => m.id === request.id && !m.archived)
+      if (memo) openDashboardAlarm({ id: memo.id })
+      else setQuickAddNotice('そのタスクは見つかりませんでした（完了フォルダに移したか、消したタスクです）')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkRequest, user, cloudStatus, memos])
+
   useEffect(() => {
     if (!knowledgeUndo) return
     const timer = setTimeout(() => setKnowledgeUndo(null), 6000)
@@ -1984,6 +2045,15 @@ export default function App() {
         </div>
 
         <div className="actions">
+          <a
+            className="mail-page-link"
+            href={MAIL_PAGE_URL}
+            target="_blank"
+            rel="noopener"
+            title="メール画面（Claude）を新しいタブで開く"
+          >
+            ✉ メール画面
+          </a>
           {cloudStatus !== 'off' && (
             <span
               className={`cloud-status ${cloudStatus}`}

@@ -1309,6 +1309,27 @@ button.ghost.on {
   border: 1px solid var(--line-strong);
 }
 
+/* メール画面（Claude）へのリンク。2026-11-20 追加 */
+.mail-page-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 11px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-soft);
+  color: var(--text);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: 0.15s;
+}
+
+.mail-page-link:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .cloud-status.on {
   color: var(--accent);
   border-color: color-mix(in srgb, var(--accent) 35%, transparent);
